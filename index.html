@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New York Xeno (NYX)</title>
+<style>
+html,body{margin:0;height:100%;background:#05030a;overflow:hidden}
+#wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;outline:none;cursor:none}
+#crt{position:absolute;inset:0;pointer-events:none;
+background:repeating-linear-gradient(to bottom,rgba(0,0,0,.20) 0,rgba(0,0,0,.20) 1px,transparent 1px,transparent 3px),
+radial-gradient(ellipse at center,transparent 62%,rgba(0,0,0,.6) 100%)}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="640" height="360" tabindex="0"></canvas><div id="crt"></div></div>
+<script src="js/core.js"></script>
+<script src="js/data.js"></script>
+<script src="js/city.js"></script>
+<script src="js/art.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/render.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
