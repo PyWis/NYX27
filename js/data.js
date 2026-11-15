@@ -7,8 +7,17 @@ const ROSTER=[
  {name:'Vesper',sex:'DONNA',color:'#3a7bff',wpn:{k:'gun',cd:.3,dmg:8,spd:5*BASE,rng:10*BL,label:'PISTOLA RAPIDA'},punch:{dmg:2,cd:.4},spd:1,skin:'#e0b090',hair:'#2b4bd8',visor:'#3cf2ff'},
  {name:'Indigo',sex:'DONNA',color:'#16121f',rim:'#8a6bff',wpn:{k:'melee',cd:.5,dmg:4,rad:44,style:'whip',label:'FRUSTA'},punch:{dmg:2,cd:.4},spd:1,skin:'#a8704a',hair:'#3b1f6b',visor:'#b48cff'},
  {name:'Nova',sex:'DONNA',color:'#ff6ec7',wpn:null,punch:{dmg:1,cd:.3},spd:1,skin:'#f2c6a8',hair:'#ff4fb0',visor:'#ffe03c'},
+ // spada laser: tieni premuto l'attacco, la moto si ferma e carica 1 secondo -> colpo mortale tutto intorno
+ {name:'Akira',sex:'UOMO',color:'#ff8a1f',wpn:{k:'laser',cd:.6,dmg:999,rad:36,chg:1,label:'SPADA LASER'},punch:{dmg:2,cd:.4},spd:1,skin:'#e8c09a',hair:'#141018',visor:'#ff3d3d',band:'#ff3d3d'},
+ // scudo laser: in moto ogni colpo toglie solo 1 di vita - rapina furtiva 70% senza conseguenze
+ {name:'Melanie',sex:'DONNA',color:'#ffd21f',wpn:null,punch:{dmg:2,cd:.4},spd:1.5,skin:'#f0c8a0',hair:'#d9452b',visor:'#3cf2ff',laserShield:true,stealth:.7},
 ];
 ROSTER.forEach(r=>r.ui=r.rim||r.color);
+const NB=ROSTER.length;          // numero di biker
+const LEADERS=[0,3];             // Zephyr e Vesper
+const AKIRA=6,MELANIE=7;
+const isLeader=i=>LEADERS.includes(i);
+const ENEMY_LASER_DMG=35;        // gli Xeno con la spada laser non uccidono in un colpo
 const NEON=['#ff3df2','#3cf2ff','#ffe03c','#ff4d6d','#7dff6a','#a66bff'];
 const ACID='#c6ff3a';
 // ---------- shops: 5 farmacie, 5 meccanici, 20 negozi + 6 edifici speciali ----------

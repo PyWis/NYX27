@@ -12,7 +12,7 @@ function followMove(e,dt){
   if(e.kneel){e.v=0;return;}
   if(e.onFoot)e.onFoot=false;
   const pb=pBody,d=dist(e.x,e.y,pb.x,pb.y);const spd=BASE*.85*(e.spd>1?1.75:1)*1.2;
-  if(d<46){e.v*=.85;return;}
+  if(d<46){e.v*=Math.pow(.85,dt*60);return;}
   let tx=pb.x,ty=pb.y;
   if(flowAt(e.x/CELL|0,e.y/CELL|0)>=0){if(!los(e.x,e.y,pb.x,pb.y)){const f=flowDir(e.x,e.y);if(f){tx=f.x;ty=f.y;}}}
   else{e.fT=(e.fT||0)-dt;if(e.fT<=0||!e.fpath){e.fT=3;const s=nearestNodeLOS(e.x,e.y),t=nearestNodeLOS(pb.x,pb.y);const path=dijkstra(s,t)||[];e.fpath=path.map(i=>nodes[i]);e.fi=0;}
@@ -26,7 +26,7 @@ function updateEnemy(e,dt){
   if(e.state==='wander'){
     if(!safe&&(d<110||(d<250&&los(eb.x,eb.y,pb.x,pb.y)))){e.state='chase';e.lock=0;pop(eb.x,eb.y-16,'!',ACID);if(d<400)sfx('alert');}
     else{if(e.onFoot)e.onFoot=false;wander(e,dt,BASE*.7*e.spd);return;}}
-  if(d>650||safe){e.onFoot=false;e.state='wander';e.tn=nearestNodeLOS(e.x,e.y);e.pn=-1;return;}
+  if(d>650||safe){e.onFoot=false;e.lchg=0;e.state='wander';e.tn=nearestNodeLOS(e.x,e.y);e.pn=-1;return;}
   const sees=los(eb.x,eb.y,pb.x,pb.y);e.lock=sees?e.lock+dt:0;
   if(e.onFoot){
     if(d>150){const dx=e.x-e.fx,dy=e.y-e.fy,l=Math.hypot(dx,dy);if(l<8){e.onFoot=false;return;}e.fa=Math.atan2(dy,dx);moveCol(e,'fx','fy',dx/l*46*dt,dy/l*46*dt,3);e.walk+=dt*12;}
@@ -35,14 +35,18 @@ function updateEnemy(e,dt){
       if(d>10){moveCol(e,'fx','fy',dx/l*44*dt,dy/l*44*dt,3);e.walk+=dt*12;}
       if(d<14&&e.cd<=0){e.cd=e.punch.cd*1.25;e.punchT=.12;damagePlayer(e.punch.dmg,'xeno',e,'punch');pop(pb.x,pb.y-22,'POW!','#ff9de6');sfx('punch');}}
     return;}
-  let tx=pb.x,ty=pb.y;if(!sees){const f=flowDir(e.x,e.y);if(f){tx=f.x;ty=f.y;}}
-  const w=e.wpn;let spd=BASE*.85*(e.spd>1?1.75:1);if(w&&w.k==='gun'&&sees&&d<w.rng*.55)spd*=.2;
+  const w=e.wpn;
+  if(w&&w.k==='laser'){
+    if(e.lchg>0){e.v=0;e.lchg+=dt;if(e.lchg>=w.chg){e.lchg=0;e.cd=2.6;fx.push({k:'laser',x:e.x,y:e.y,a:e.a,t:0,dur:.35,r:w.rad,c:'#ff8a1f',own:e});sfx('laser');
+        if(d<w.rad+8)damagePlayer(ENEMY_LASER_DMG,'xeno',e,'weapon');}return;}
+    if(d<w.rad+2&&e.cd<=0&&sees){e.lchg=.001;e.v=0;if(d<400)sfx('laserup');return;}}
+  let tx=pb.x,ty=pb.y;if(!sees){const f=flowDir(e.x,e.y);if(f){tx=f.x;ty=f.y;}}let spd=BASE*.85*(e.spd>1?1.75:1);if(w&&w.k==='gun'&&sees&&d<w.rng*.55)spd*=.2;
   steerTo(e,tx,ty,spd,dt);
   if(w&&w.k==='gun'){if(sees&&d<w.rng*.95&&e.lock>.5&&e.cd<=0){const a=Math.atan2(pb.y-e.y,pb.x-e.x)+(R()-.5)*.24;
       bullets.push({x:e.x+Math.cos(a)*9,y:e.y+Math.sin(a)*9,vx:Math.cos(a)*w.spd,vy:Math.sin(a)*w.spd,life:w.rng/w.spd,dmg:w.dmg,o:'e',c:ACID,from:e});e.cd=w.cd*1.5;
       fx.push({k:'flash',x:e.x+Math.cos(a)*9,y:e.y+Math.sin(a)*9,t:0,dur:.08,r:12,c:ACID});sfx(e.t===3?'rapid':'shoot');}}
   else if(w&&w.k==='melee'){if(d<w.rad+5&&e.cd<=0){e.cd=w.cd*1.3;damagePlayer(w.dmg,'xeno',e,'weapon');fx.push({k:w.style,x:e.x,y:e.y,a:e.a,t:0,dur:.22,r:w.rad,c:w.style==='whip'?'#a66bff':ACID,own:e});sfx(w.style==='whip'?'whip':'slash');}}
-  else if(d<46&&sees){e.onFoot=true;e.fx=e.x;e.fy=e.y;e.v=0;e.fa=e.a;}}
+  else if(!w&&d<46&&sees){e.onFoot=true;e.fx=e.x;e.fy=e.y;e.v=0;e.fa=e.a;}}
 // ---------- police ----------
 function policeTarget(){let sum=0,n3=0,any4=false;for(const s of shops){sum+=s.anger;if(s.anger>=3)n3++;if(s.anger>=4)any4=true;}
   if(any4)return 6;if(n3>0)return Math.min(5,n3);return sum>2?1:0;}
@@ -62,7 +66,7 @@ function updatePolice(c,dt){
   if(c.mode==='impound'){c.impT-=dt;if(c.impT<=0){c.gone=true;msg('LA POLIZIA HA RIPRESO L\'AUTO DALLA RIMESSA','#3a7bff');}return;}
   for(const k of c.cops){k.cd-=dt;if(!k.out){k.x=c.x;k.y=c.y;}}
   const alive=c.cops.filter(k=>k.hp>0);
-  if(!alive.length){c.mode='abandoned';c.abT=0;c.v=0;c.arrest=0;if(dist(c.x,c.y,pBody.x,pBody.y)<400)msg('AGENTI A TERRA! E A PIEDI VICINO ALL\'AUTO PER RUBARLA','#3a7bff');return;}
+  if(!alive.length){c.mode='abandoned';c.abT=0;c.v=0;c.arrest=0;if(dist(c.x,c.y,pBody.x,pBody.y)<400)msg('AGENTI A TERRA! '+K('use')+' A PIEDI VICINO ALL\'AUTO PER RUBARLA','#3a7bff');return;}
   const pb=pBody,d=dist(c.x,c.y,pb.x,pb.y),safe=!pAvail||inGarage(pb.x,pb.y);
   const out=alive.filter(k=>k.out);
   if(c.leave||safe||d>700){if(!out.length){if(d>700||safe||c.leave)c.state='patrol';wander(c,dt,BASE*.75,6);}else recallCops(c,out,dt);c.arrest=0;return;}
@@ -72,7 +76,7 @@ function updatePolice(c,dt){
   if(!out.length){let tx=pb.x,ty=pb.y;if(!sees){const f=flowDir(c.x,c.y);if(f){tx=f.x;ty=f.y;}}steerTo(c,tx,ty,BASE*.95,dt,6);
     if(d<75&&sees){c.v=0;alive.forEach((k,i)=>{const a=c.a+(i?1:-1)*Math.PI/2;const x=c.x+Math.cos(a)*12,y=c.y+Math.sin(a)*12;k.x=blocked(x,y,3)?c.x:x;k.y=blocked(x,y,3)?c.y:y;k.out=true;});sfx('siren');}
     return;}
-  c.v*=.85;let touching=false;const p=team[active];
+  c.v*=Math.pow(.85,dt*60);let touching=false;const p=team[active];
   for(const k of out){const dk=dist(k.x,k.y,pb.x,pb.y);const ks=los(k.x,k.y,pb.x,pb.y);let tx=pb.x,ty=pb.y;if(!ks){const f=flowDir(k.x,k.y);if(f){tx=f.x;ty=f.y;}}
     k.fa=Math.atan2(pb.y-k.y,pb.x-k.x);if(dk>10){const dx=tx-k.x,dy=ty-k.y,l=Math.hypot(dx,dy)||1;moveCol(k,'x','y',dx/l*50*dt,dy/l*50*dt,3);k.walk+=dt*12;}
     if(ks&&dk<200&&dk>18&&k.cd<=0){const a=k.fa+(R()-.5)*.3;bullets.push({x:k.x+Math.cos(a)*6,y:k.y+Math.sin(a)*6,vx:Math.cos(a)*300,vy:Math.sin(a)*300,life:.7,dmg:5,o:'c',c:'#9fd4ff'});k.cd=.9;sfx('shoot');}

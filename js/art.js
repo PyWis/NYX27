@@ -25,13 +25,13 @@ function drawChurch(g,s,lx,ly,lw,lh){const side=s.side,vert=side==='t'||side==='
 function drawShopFront(g,s,b){const P=(x,y,w,h,cl)=>{g.fillStyle=cl;g.fillRect(x,y,w,h);};const T=SHOP_T[s.type];
   const L=s.L,lx=(L.x-b.x)*CELL+1,ly=(L.y-b.y)*CELL+1,lw=L.w*CELL-2,lh=L.h*CELL-2;const dx=s.x-b.x*CELL,dy=s.y-b.y*CELL;
   if(s.type==='church'){drawChurch(g,s,lx,ly,lw,lh);return;}
-  if(T.sp){P(lx+2,ly+2,lw-4-L.hgt,lh-4-L.hgt,shade(T.c,-.72));for(let i=0;i<(lw*lh)/40;i++)P(lx+3+((i*37)%(lw-8)),ly+3+((i*53)%(lh-8)),1,1,shade(T.c,-.6));}
+  if(T.sp){P(lx+2,ly+2,lw-4-0,lh-4-0,shade(T.c,-.72));for(let i=0;i<(lw*lh)/40;i++)P(lx+3+((i*37)%(lw-8)),ly+3+((i*53)%(lh-8)),1,1,shade(T.c,-.6));}
   if(s.side==='t'||s.side==='b'){const y=s.side==='t'?ly:ly+lh-5;for(let x=lx;x<lx+lw;x+=3)P(x,y,3,5,(x/3|0)%2?T.c:'#f2f2f2');P(lx,s.side==='t'?y+5:y-1,lw,1,'#000');P(dx-5,s.side==='t'?y-2:y+5,10,2,'#ffe9a8');}
   else{const x=s.side==='l'?lx:lx+lw-5;for(let y=ly;y<ly+lh;y+=3)P(x,y,5,3,(y/3|0)%2?T.c:'#f2f2f2');P(s.side==='l'?x+5:x-1,ly,1,lh,'#000');P(s.side==='l'?x-2:x+5,dy-5,2,10,'#ffe9a8');}
-  const sc=T.sp?2:1,bs=7*sc+4;const cx=Math.round(lx+(lw-L.hgt)/2-bs/2),cy=Math.round(ly+(lh-L.hgt)/2-bs/2-(T.sp?5:0));
+  const sc=T.sp?2:1,bs=7*sc+4;const cx=Math.round(lx+(lw-0)/2-bs/2),cy=Math.round(ly+(lh-0)/2-bs/2-(T.sp?5:0));
   P(cx-1,cy-1,bs,bs,'#0b0814');P(cx-1,cy-1,bs,1,T.c);P(cx-1,cy+bs-2,bs,1,T.c);P(cx-1,cy-1,1,bs,T.c);P(cx+bs-2,cy-1,1,bs,T.c);
   T.icon.forEach((row,j)=>{for(let i=0;i<7;i++)if(row[i]==='1')P(cx+1+i*sc,cy+1+j*sc,sc,sc,T.c);});
-  if(T.sp){const nm=T.name;const tw=nm.length*6-1;if(tw<lw-L.hgt-4){const tx=Math.round(lx+(lw-L.hgt-tw)/2),ty=cy+bs+3;glyphs(g,nm,tx+1,ty+1,1,'#000');glyphs(g,nm,tx,ty,1,T.c);}}}
+  if(T.sp){const nm=T.name;const tw=nm.length*6-1;if(tw<lw-0-4){const tx=Math.round(lx+(lw-0-tw)/2),ty=cy+bs+3;glyphs(g,nm,tx+1,ty+1,1,'#000');glyphs(g,nm,tx,ty,1,T.c);}}}
 // ---------- art: textures & sprites ----------
 const asph=mk(64,64);{const g=asph.getContext('2d');g.fillStyle='#16121e';g.fillRect(0,0,64,64);
   for(let i=0;i<520;i++){g.fillStyle=['#1c1726','#110e18','#1a1522','#201a2c'][i%4];g.fillRect(Math.random()*64|0,Math.random()*64|0,1,1);}
@@ -68,6 +68,7 @@ function portrait(r){const c=mk(24,24),g=c.getContext('2d');const P=(x,y,w,h,cl)
   P(7,5,10,11,r.skin);P(16,6,1,9,shade(r.skin,-.2));
   if(F){P(6,3,12,4,r.hair);P(5,5,2,13,r.hair);P(17,5,2,13,r.hair);P(7,6,3,1,r.hair);}
   else{P(7,3,10,3,r.hair);P(6,4,1,4,r.hair);P(17,4,1,3,r.hair);if(r.name==='Atlas'){P(7,13,10,3,'#1a1010');P(9,13,6,1,r.skin);}}
+  if(r.band){P(6,6,12,1,r.band);P(17,7,2,3,r.band);}
   P(7,8,10,2,r.visor);P(8,8,2,1,'#ffffff');P(7,10,10,1,shade(r.skin,-.3));
   P(10,13,4,1,shade(r.skin,-.4));
   return c;}
@@ -87,15 +88,13 @@ function renderBlock(b){
   const ix=CELL,iy=CELL,iw=W-2*CELL,ih=H-2*CELL;
   if(b.type==='park')drawPark(g,r,ix,iy,iw,ih);
   else if(b.type==='garage')drawGarage(g,r,ix,iy,iw,ih,b);
-  else for(const L of b.lots)drawLot(g,L,b);
-  for(const n of b.neon){P(n.x-b.x*CELL,n.y-b.y*CELL,n.w,n.h,n.c);}
-  if(b.shop)drawShopFront(g,b.shop,b);
+  else for(const L of b.lots){if(L.flat)drawLot(g,L,b);else drawLotBase(g,L,b);}
+  if(b.shop&&b.shop.L.flat)drawShopFront(g,b.shop,b);
   return c;
 }
 function drawLot(g,L,b){
   const r=mulberry(L.seed);const P=(x,y,w,h,cl)=>{g.fillStyle=cl;g.fillRect(x,y,w,h);};
-  const lx=(L.x-b.x)*CELL+1,ly=(L.y-b.y)*CELL+1,lw=L.w*CELL-2,lh=L.h*CELL-2,H=L.hgt,roof=L.roof;
-  P(lx+2,ly+2,lw,lh,'rgba(0,0,0,.35)');
+  const lx=(L.x-b.x)*CELL+1,ly=(L.y-b.y)*CELL+1,lw=L.w*CELL-2,lh=L.h*CELL-2,H=0,roof=L.roof;
   P(lx+lw-H,ly,H,lh,shade(roof,-.5));P(lx,ly+lh-H,lw,H,shade(roof,-.65));
   const wc=['#ffd27a','#7af0ff','#ff7ad9','#b6ff7a'];
   if(H>=3){for(let x=lx+2;x<lx+lw-H-1;x+=3)if(r()<.4)P(x,ly+lh-H+1,1,H-2,pickR(r,wc));for(let y=ly+2;y<ly+lh-H-1;y+=3)if(r()<.4)P(lx+lw-H+1,y,H-2,1,pickR(r,wc));}
@@ -143,3 +142,30 @@ function drawGarage(g,r,ix,iy,iw,ih,b){const P=(x,y,w,h,cl)=>{g.fillStyle=cl;g.f
   glyphs(g,t,tx+2,ty+2,sc,'#3a0b3d');glyphs(g,t,tx,ty,sc,'#ff3df2');
   if(ih>=140){const t2='RIMESSA',tw2=t2.length*6-1;glyphs(g,t2,ix+(iw-tw2)/2|0,ty+24,1,'#3cf2ff');}
 }
+
+// ---------- edifici: base a terra (nel blocco) + tetto separato (disegnato in pseudo-3D) ----------
+function drawLotBase(g,L,b){const lx=(L.x-b.x)*CELL+1,ly=(L.y-b.y)*CELL+1,lw=L.w*CELL-2,lh=L.h*CELL-2;
+  g.fillStyle='rgba(0,0,0,.45)';g.fillRect(lx+3,ly+3,lw,lh);g.fillStyle=shade(L.roof,-.62);g.fillRect(lx,ly,lw,lh);}
+const roofCache=new Map();
+function lotRoof(L,b){let c=roofCache.get(L);if(c){roofCache.delete(L);roofCache.set(L,c);return c;}
+  const lx=(L.x-b.x)*CELL+1,ly=(L.y-b.y)*CELL+1,lw=L.w*CELL-2,lh=L.h*CELL-2;c=mk(lw,lh);const g=c.getContext('2d');g.translate(-lx,-ly);
+  drawLot(g,L,b);if(b.shop&&b.shop.L===L)drawShopFront(g,b.shop,b);
+  // finestre illuminate lungo le pareti: colori pre-scelti per lotto
+  const r=mulberry(L.seed^0x9e37);L.win=[];for(let i=0;i<24;i++)L.win.push(r()<.42?pickR(r,['#ffd27a','#7af0ff','#ff7ad9','#b6ff7a','#ffe9a8']):null);
+  roofCache.set(L,c);if(roofCache.size>700)roofCache.delete(roofCache.keys().next().value);return c;}
+
+// ---------- rotazioni pre-calcolate (32 angoli, campionamento nearest centrato) ----------
+// evita i pixel che "ballano" ruotando sprite minuscole a runtime
+const ROT_N=32,rotCache=new WeakMap();
+function rotSet(src){let rs=rotCache.get(src);if(rs)return rs;
+  const w=src.width,h=src.height,S=Math.ceil(Math.hypot(w,h))+2+((Math.ceil(Math.hypot(w,h))+2)%2);
+  const sd=src.getContext('2d').getImageData(0,0,w,h).data;rs={S,f:[],sh:[]};
+  for(let k=0;k<ROT_N;k++){const a=k/ROT_N*Math.PI*2,ca=Math.cos(a),sa=Math.sin(a);
+    const c=mk(S,S),g=c.getContext('2d'),id=g.createImageData(S,S),d=id.data;
+    const s2=mk(S,S),g2=s2.getContext('2d'),id2=g2.createImageData(S,S),d2=id2.data;
+    for(let y=0;y<S;y++)for(let x=0;x<S;x++){const dx=x+.5-S/2,dy=y+.5-S/2;
+      const sx=Math.floor(dx*ca+dy*sa+w/2),sy=Math.floor(-dx*sa+dy*ca+h/2);if(sx<0||sy<0||sx>=w||sy>=h)continue;
+      const si=(sy*w+sx)*4,o=(y*S+x)*4;if(sd[si+3]<10)continue;d[o]=sd[si];d[o+1]=sd[si+1];d[o+2]=sd[si+2];d[o+3]=sd[si+3];d2[o+3]=255;}
+    g.putImageData(id,0,0);g2.putImageData(id2,0,0);rs.f.push(c);rs.sh.push(s2);}
+  rotCache.set(src,rs);return rs;}
+const rotIdx=a=>((Math.round(a/(Math.PI*2)*ROT_N)%ROT_N)+ROT_N)%ROT_N;
