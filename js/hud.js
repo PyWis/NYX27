@@ -106,6 +106,10 @@ function statusTxt(b) {
       ];
     case 'captured':
       return ['RAPITO ' + shortT(b.capT), '#ff3df2'];
+    case 'robbing':
+      return ['RAPINALI TUTTI! ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), '#ffd21f'];
+    case 'truce':
+      return ['TREGUA ' + shortT(truceT), '#c6ff3a'];
     case 'dead':
       return ['MORTO', '#6a5f80'];
   }
@@ -140,6 +144,10 @@ function statusShort(b) {
       ];
     case 'captured':
       return ['RAP ' + shortT(b.capT), '#ff3df2'];
+    case 'robbing':
+      return ['RAP ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), '#ffd21f'];
+    case 'truce':
+      return ['TREG ' + shortT(truceT), '#c6ff3a'];
     case 'dead':
       return ['MORTO', '#6a5f80'];
   }
@@ -180,6 +188,7 @@ function drawTopBar() {
     txt('+' + 40 * bonds.length + '$ ' + fmt(bondT), 470, 18, '#ffd27a');
   }
   if (radarOn) txt('RADAR', 470, 30, '#ffe03c');
+  else if (advOn) txt('RADAR+', 470, 30, '#ff8a1f');
 }
 // azione contestuale vicino al giocatore: [tasto, testo]
 function hudPrompt(p) {
@@ -189,6 +198,7 @@ function hudPrompt(p) {
   }
   const s = nearShop(b);
   if (s && !p.inCar) {
+    if (shopOff(s)) return [null, s.name + ' FUORI USO ' + fmtL(s.offT)];
     if (mission && mission.carrier < 0 && s.i === mission.from)
       return [K('use'), 'PRENDI IL PACCO (' + mission.pay + '$)'];
     if (mission && mission.carrier === p.i && s.i === mission.to) return [K('use'), 'CONSEGNA IL PACCO'];
@@ -336,6 +346,8 @@ function drawHUD() {
     }
   }
   if (capE) needle(Math.atan2(capE.y - pb.y, capE.x - pb.x), '#ff3df2', 14);
+  const gold = enemies.find(e => e.kind === 'gold');
+  if (gold) needle(Math.atan2(gold.y - pb.y, gold.x - pb.x), XK.gold.c, 16);
   if (ne) {
     needle(Math.atan2(ne.y - pb.y, ne.x - pb.x), ACID, 19);
     ctx.fillStyle = '#fff';
@@ -387,6 +399,14 @@ function drawHUD() {
       my2 += 9;
     }
   }
+  if (advOn) {
+    const r = radarPos(pb);
+    if (r) {
+      needle(Math.atan2(r.y - pb.y, r.x - pb.x), '#ff8a1f', 17);
+      txt('RADAR: ' + r.n + ' ' + Math.round(dist(r.x, r.y, pb.x, pb.y) / 8) + 'M', VW - 4, my2, '#ff8a1f', 1, 'right');
+    } else txt('RADAR: OBIETTIVO PERSO (' + K('radar') + ')', VW - 4, my2, '#7a6f99', 1, 'right');
+    my2 += 9;
+  }
   // minimappa
   const mx = 4,
     my = VH - 108,
@@ -417,6 +437,11 @@ function drawHUD() {
   mark(garage.cx, garage.cy, blink(2) ? '#ff3df2' : '#ffffff', 4);
   for (const b of team) if (b.i !== active && AVAIL(b.status)) mark(b.x, b.y, b.ui, 2);
   if (capE && blink(3)) mark(capE.x, capE.y, '#ff3df2', 3);
+  for (const e of enemies) if (e.kind) mark(e.x, e.y, XK[e.kind].c, 3, e.kind !== 'gold');
+  if (advOn && blink(3)) {
+    const r = radarPos(pb);
+    if (r) mark(r.x, r.y, '#ff8a1f', 4);
+  }
   mark(pb.x, pb.y, '#ffffff', 3);
   txt('MAPPA (' + K('map') + ')', mx + 4, my + 4, '#3cf2ff');
   drawRoster();
@@ -434,6 +459,33 @@ function drawHUD() {
     strip('XENO SOTTO 3: ' + fmtL(lowT) + ' / 30:00 PER VINCERE', AX, ay, '#5cff7a');
     ay += 12;
   }
+  if (truceOn()) {
+    strip('TREGUA DI NYX ' + fmt(truceT) + ' - NESSUNO ATTACCA', AX, ay, '#c6ff3a');
+    ay += 12;
+  }
+  for (const e of enemies) {
+    if (e.kind === 'gold') {
+      const s = e.tgt >= 0 ? shops[e.tgt] : null;
+      if (s)
+        strip(
+          e.siegeT > 0
+            ? 'XENO GOLD ASSEDIA ' + s.name + ': CADE TRA ' + fmt(SIEGE_T - e.siegeT)
+            : 'XENO GOLD VERSO ' + s.name,
+          AX,
+          ay,
+          blink(2) ? XK.gold.c : '#ffffff',
+        );
+      ay += 12;
+    } else if (e.kind === 'silver') {
+      strip('XENO SILVER: DIVENTA GOLD TRA ' + fmt(15 * 60 - e.spT), AX, ay, XK.silver.c);
+      ay += 12;
+    }
+  }
+  const nr = enemies.filter(e => e.kind === 'red').length;
+  if (nr) {
+    strip('XENO ROSSI VERSO LA RIMESSA: ' + nr + '/3', AX, ay, XK.red.c);
+    ay += 12;
+  }
   if (p.bat < 15 && p.bat > 0 && blink(2)) {
     strip('BATTERIA BASSA', AX, ay, '#ff4d6d');
     ay += 12;
@@ -441,7 +493,12 @@ function drawHUD() {
   if (nightE() < 40) {
     strip('GUIDA ' + KDRIVE() + ' - ATTACCO ' + K('attack'), AX, ay, '#c9c2e6');
     ay += 12;
-    strip(K('mount') + ' SCENDI - ' + K('use') + ' AZIONE - ' + K('switch') + ' CAMBIA BIKER', AX, ay, '#c9c2e6');
+    strip(
+      K('mount') + ' SCENDI - ' + K('use') + ' AZIONE - ' + K('switch') + ' CAMBIA BIKER (+SHIFT: RIENTRA)',
+      AX,
+      ay,
+      '#c9c2e6',
+    );
     ay += 12;
     strip(K('pause') + ' PAUSA E COMANDI - ' + K('map') + ' MAPPA', AX, ay, '#7a6f99');
   }
@@ -537,6 +594,17 @@ function drawBigMap() {
     txt('PACCO', a, b2 - 11, '#ffe03c', 1, 'center');
   }
   for (const c of police) dot(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : '#2b6bff', 3);
+  for (const e of enemies)
+    if (e.kind) {
+      dot(e.x, e.y, XK[e.kind].c, 5);
+      const [a, b2] = P(e.x, e.y);
+      txt(XK[e.kind].name, a, b2 - 11, XK[e.kind].c, 1, 'center');
+    }
+  for (const s of shops)
+    if (shopOff(s)) {
+      const [a, b2] = P(s.x, s.y);
+      txt('FUORI USO', a, b2 + 13, '#ffd21f', 1, 'center');
+    }
   for (const t of team) {
     if (t.status === 'captured') {
       const e = enemies.find(e => e.id === t.captor);
@@ -842,8 +910,20 @@ function drawPause() {
     ['MISSIONI: OGNI 15 MIN UN PACCO DA CONSEGNARE - 100$ (+50 OLTRE 75% MAPPA, +50 OLTRE 100%)', '#ffe03c'],
     ["UCCIDI I 2 AGENTI: RUBA L'AUTO (" + K('use') + ') E PORTALA IN RIMESSA = 200-400$', '#9fd4ff'],
     ['RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA', '#7a6f99'],
+    ['SHIFT+' + K('switch') + ' (PAD L3): CAMBIA BIKER E FAI RIENTRARE IN RIMESSA QUELLO LASCIATO', '#c9c2e6'],
+    [
+      'AKIRA AL CENTRO NASA: RADAR AVANZATO 10000$ PER IL TEAM - ' + K('radar') + ' X3 = SCEGLI UN SOLO OBIETTIVO',
+      '#ff8a1f',
+    ],
+    [
+      'MELANIE AL COMMISSARIATO: LISTA RABBIA E RAPINALI TUTTI! (+2000$, RABBIA +1, VITA 1, RISCHIO ARRESTO)',
+      '#ffd21f',
+    ],
+    ['NOVA AL CENTRO ALIENI: NYX PROCLAMA LA TREGUA 15 MIN 5000$ (OGNI ORA) - XENO FERMI A 15', '#c6ff3a'],
+    ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
+    ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];
-  L.forEach((l, i) => txt(l[0], VW / 2, 40 + i * 14, l[1], 1, 'center'));
+  L.forEach((l, i) => txt(l[0], VW / 2, 34 + i * 11, l[1], 1, 'center'));
   txt(
     K('pause') +
       ' RIPRENDI   -   ' +

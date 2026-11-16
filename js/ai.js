@@ -74,6 +74,7 @@ function followMove(e, dt) {
   steerTo(e, tx, ty, spd, dt);
 }
 function updateEnemy(e, dt) {
+  if (e.kind && specialMove(e, dt)) return; // Xeno Rosso / Silver / Gold
   if (e.follow && nyxOn()) {
     e.cd -= dt;
     e.hitT -= dt;
@@ -86,7 +87,8 @@ function updateEnemy(e, dt) {
   e.cd -= dt;
   e.hitT -= dt;
   e.punchT -= dt;
-  const safe = !pAvail || inGarage(pb.x, pb.y);
+  // tregua di Nova: nessuno Xeno attacca (tranne il Gold)
+  const safe = !pAvail || inGarage(pb.x, pb.y) || (truceOn() && e.kind !== 'gold');
   if (e.state === 'wander') {
     if (!safe && (d < 110 || (d < 250 && los(eb.x, eb.y, pb.x, pb.y)))) {
       e.state = 'chase';
@@ -95,7 +97,7 @@ function updateEnemy(e, dt) {
       if (d < 400) sfx('alert');
     } else {
       if (e.onFoot) e.onFoot = false;
-      wander(e, dt, BASE * 0.7 * e.spd);
+      wander(e, dt, BASE * 0.7 * e.spd * (e.mul || 1));
       return;
     }
   }
@@ -179,7 +181,7 @@ function updateEnemy(e, dt) {
       ty = f.y;
     }
   }
-  let spd = BASE * 0.85 * (e.spd > 1 ? 1.75 : 1);
+  let spd = xenoSpd(e);
   if (w && w.k === 'gun' && sees && d < w.rng * 0.55) spd *= 0.2;
   steerTo(e, tx, ty, spd, dt);
   if (w && w.k === 'gun') {
