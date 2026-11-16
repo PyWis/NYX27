@@ -477,7 +477,8 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
     lcone(o, 0.75);
     lglow(o.x, o.y, 18, '#fff2d8', 0.25);
   };
-  for (const b of team) if (b.status === 'returning' || (b.status === 'active' && playing && !b.onFoot)) car(b);
+  for (const b of team)
+    if (b.status === 'returning' || b.status === 'robbing' || (b.status === 'active' && playing && !b.onFoot)) car(b);
   for (const e of enemies)
     if (!e.onFoot) {
       car(e);
@@ -600,7 +601,13 @@ function drawWorld(cx, cy, dt) {
       lab(b.name, b.x, b.y - 18, b.ui);
       lab(b.waitT > 0 ? fmt(b.waitT) : 'IN CARICA', b.x, b.y + 9, '#ffe03c');
     } else if (b.status === 'returning') lab(b.name, b.x, b.y - 18, b.ui);
-    else if (empty)
+    else if (b.status === 'robbing') {
+      lab(b.name, b.x, b.y - 18, b.ui);
+      lab('RAPINALI TUTTI! ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), b.x, b.y + 9, '#ffd21f');
+    } else if (b.status === 'truce') {
+      lab(b.name, b.x, b.y - 18, b.ui);
+      lab('TREGUA ' + fmt(truceT), b.x, b.y + 9, '#c6ff3a');
+    } else if (empty)
       lab(
         b.status === 'captured'
           ? 'RAPITO'
@@ -644,8 +651,9 @@ function drawWorld(cx, cy, dt) {
     const t = missionTarget();
     if (vis(t.x, t.y) && blink(3)) lab(mission.carrier < 0 ? 'PACCO!' : 'CONSEGNA QUI', t.x, t.y - 31, '#ffe03c');
   }
+  for (const s of shops) if (shopOff(s) && vis(s.x, s.y)) lab('FUORI USO ' + fmtL(s.offT), s.x, s.y - 40, '#ffd21f');
   for (const e of enemies) {
-    const s = enemySpr(e.t);
+    const s = e.kind ? XK[e.kind] : enemySpr(e.t);
     if (!vis(e.x, e.y) && !vis(e.fx, e.fy)) continue;
     if (e.onFoot) {
       drawVeh(s.e, e.x, e.y, e.a);
@@ -659,6 +667,11 @@ function drawWorld(cx, cy, dt) {
     if (e.follow && nyxOn() && !e.kneel && Math.floor(T * 2 + e.id) % 4 === 0) {
       ctx.fillStyle = '#b48cff';
       ctx.fillRect(Math.round(e.x) - 1, Math.round(e.y) - 12, 3, 3);
+    }
+    if (e.kind) {
+      const k = XK[e.kind];
+      lab(k.name + ' ' + Math.ceil(e.hp), e.x, e.y - 16, k.c);
+      if (e.kind === 'gold') ring(e.x, e.y, 14, blink(4) ? k.c : '#fff2a0', 16, T * 3, 1);
     }
     if (e.kneel && ceremony) lab(ceremony.said ? '...' : 'DEA DELLA NOTTE', e.fx, e.fy - 14, ACID);
     const caps = team.filter(t => t.status === 'captured' && t.captor === e.id);

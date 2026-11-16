@@ -88,6 +88,7 @@ function frame(t) {
     if (state === 'title') drawTitle(rdt);
   } else if (state === 'play' || state === 'wait') {
     if (gunMenu) gunInput();
+    else if (listMenu) listInput();
     else if (paused) {
       if (take('pause') || mhit('back')) paused = false;
       else if (take('options') || mhit('opts')) optMenu = { sel: 0, sub: null };
@@ -95,7 +96,7 @@ function frame(t) {
       if (take('map') || mhit('back')) mapOpen = false;
     } else if (take('map')) mapOpen = true;
     else if (state === 'play' && take('pause')) paused = true;
-    frozen = paused || mapOpen || !!gunMenu || !!optMenu;
+    frozen = paused || mapOpen || !!gunMenu || !!listMenu || !!optMenu;
     if (!frozen) {
       if (hitStop > 0) hitStop = Math.max(0, hitStop - rdt);
       else {
@@ -129,6 +130,7 @@ function frame(t) {
       drawHUD();
       if (optMenu) drawOptions();
       else if (gunMenu) drawGunMenu();
+      else if (listMenu) drawListMenu();
       else if (mapOpen) drawBigMap();
       else if (paused) drawPause();
     } else if (state === 'wait') {

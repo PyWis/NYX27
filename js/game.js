@@ -284,6 +284,7 @@ function resetRun() {
   bonds = [];
   bondT = 60;
   radarOn = false;
+  resetSpecial();
   clearDecals();
 }
 function newGame(start) {
@@ -384,6 +385,9 @@ function serialize() {
     missionT,
     bonds,
     bondT,
+    truceT,
+    truceCD,
+    advRadar,
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -412,12 +416,26 @@ function serialize() {
       px: b.px,
       py: b.py,
       ambDest: b.ambDest,
+      rob: b.rob || null,
       onFoot: b.onFoot || !!b.inCar,
       fx: body(b).x,
       fy: body(b).y,
     })),
-    enemies: enemies.map(e => ({ id: e.id, t: e.t, x: e.x, y: e.y, hp: e.hp, follow: !!e.follow })),
-    shops: shops.map(s => ({ anger: s.anger, calm: s.calm })),
+    enemies: enemies.map(e => ({
+      id: e.id,
+      t: e.t,
+      x: e.x,
+      y: e.y,
+      hp: e.hp,
+      follow: !!e.follow,
+      kind: e.kind || null,
+      spT: e.spT || 0,
+      arrived: !!e.arrived,
+      tgt: e.tgt == null ? -1 : e.tgt,
+      siegeT: e.siegeT || 0,
+      taken: e.taken || [],
+    })),
+    shops: shops.map(s => ({ anger: s.anger, calm: s.calm, offT: s.offT || 0 })),
     police: police
       .filter(c => !c.gone)
       .map(c => ({
@@ -473,7 +491,22 @@ function loadGame(S) {
     setW(team[i]);
   });
   active = S.active;
-  for (const d of S.enemies) addEnemy(d.t, d.x, d.y, d.hp, d.id).follow = !!d.follow;
+  for (const d of S.enemies) {
+    const e = addEnemy(d.t, d.x, d.y, d.hp, d.id);
+    e.follow = !!d.follow;
+    if (d.kind && XK[d.kind]) {
+      makeSpecial(e, d.kind);
+      e.hp = d.hp;
+      e.spT = d.spT || 0;
+      e.arrived = !!d.arrived;
+      e.tgt = d.tgt == null ? -1 : d.tgt;
+      e.siegeT = d.siegeT || 0;
+      e.taken = d.taken || [];
+    }
+  }
+  truceT = S.truceT || 0;
+  truceCD = S.truceCD || 0;
+  advRadar = !!S.advRadar;
   dispersed = S.dispersed || 0;
   maxHP = S.maxHP || 100;
   donors = S.donors || [];
@@ -488,6 +521,7 @@ function loadGame(S) {
     if (shops[i]) {
       shops[i].anger = d.anger;
       shops[i].calm = d.calm;
+      shops[i].offT = d.offT || 0;
     }
   });
   for (const d of S.police || []) {
@@ -684,7 +718,8 @@ function endNyx(p, why) {
     }
   if (why) msg(why, '#b48cff');
 }
-function switchBiker() {
+// home: SHIFT + cambia biker -> il biker lasciato rientra in rimessa
+function switchBiker(home) {
   if (team[active].nyx) {
     msg('NYX E ATTIVA: NON PUOI CAMBIARE BIKER', '#ff3df2');
     return;
@@ -695,7 +730,9 @@ function switchBiker() {
     return;
   }
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
-  park(team[active]);
+  const old = team[active];
+  park(old);
+  if (home) sendHome(old);
   activate(n);
   sfx('switch');
   msg(team[n].name + ' IN SELLA', team[n].ui);
@@ -765,6 +802,15 @@ function freeCaptives(e) {
 }
 function damageEnemy(e, d) {
   if (e.dead) return;
+  // tregua di Nova: nessuno attacca (lo Xeno Gold non la rispetta)
+  if (truceOn() && e.kind !== 'gold') {
+    if (T - (e.tp || 0) > 0.6) {
+      e.tp = T;
+      const q = body(e);
+      pop(q.x, q.y - 12, 'TREGUA', '#c6ff3a');
+    }
+    return;
+  }
   e.hp -= d;
   e.hitT = 0.12;
   const b = body(e);
@@ -782,7 +828,8 @@ function damageEnemy(e, d) {
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);
     freeCaptives(e);
-    if (kills % 5 === 0) msg(kills + ' XENO ABBATTUTI!', ACID);
+    if (e.kind) msg(XK[e.kind].name + ' ABBATTUTO!', XK[e.kind].c);
+    else if (kills % 5 === 0) msg(kills + ' XENO ABBATTUTI!', ACID);
   }
 }
 function damageCop(c, d) {
@@ -1068,32 +1115,43 @@ const SHOP_ACT = {
     },
   },
   cop: {
-    hint: p => (p && p.inCar ? '' : arrested().length ? 'CAUZIONE 1000$' : "!VIENI CON L'AUTO DELLA POLIZIA"),
-    use() {
-      const ar = arrested().sort((a, b) => b.outT - a.outT);
-      if (!ar.length) {
+    hint: p =>
+      p && p.inCar
+        ? ''
+        : p && p.i === MELANIE
+          ? 'LISTA RABBIA / RAPINALI TUTTI!'
+          : arrested().length
+            ? 'CAUZIONE 1000$'
+            : "!VIENI CON L'AUTO DELLA POLIZIA",
+    use(p) {
+      if (p.i === MELANIE) return openCopMenu(p); // lista della rabbia + missione automatica
+      if (!arrested().length) {
         msg("IL COMMISSARIO VUOLE VEDERE UN'AUTO DELLA POLIZIA", '#3a7bff');
         return;
       }
-      if (money < 1000) {
-        msg('LA CAUZIONE COSTA 1000$', '#ff4d6d');
-        return;
-      }
-      money -= 1000;
-      sfx('cash');
-      release(ar[0]);
-      msg(
-        'CAUZIONE PAGATA: ' +
-          ar[0].name +
-          ' E LIBERO' +
-          (ar.length > 1 ? ' (' + (ar.length - 1) + ' ANCORA DENTRO)' : ''),
-        '#3a7bff',
-      );
+      payBail();
     },
   },
   nasa: {
-    hint: () => 'SCUDO ANTI-XENO 500$',
+    hint: p =>
+      p && p.i === AKIRA
+        ? advRadar
+          ? '!RADAR AVANZATO GIA ATTIVO (' + K('radar') + ' X3)'
+          : 'RADAR AVANZATO ' + ADV_RADAR_COST + '$ (TUTTO IL TEAM)'
+        : 'SCUDO ANTI-XENO 500$',
     use(p) {
+      // Akira puo' comprare solo il radar avanzato
+      if (p.i === AKIRA) {
+        if (advRadar) msg('RADAR AVANZATO GIA ATTIVO', '#ffe03c');
+        else if (money < ADV_RADAR_COST) msg('SERVONO ' + ADV_RADAR_COST + '$', '#ff4d6d');
+        else {
+          money -= ADV_RADAR_COST;
+          advRadar = true;
+          sfx('cash');
+          msg('RADAR AVANZATO PER TUTTO IL TEAM: ' + K('radar') + ' TRE VOLTE PER SCEGLIERE', '#ff8a1f');
+        }
+        return;
+      }
       if (p.shield) msg('SCUDO GIA INSTALLATO', '#ffe03c');
       else if (money < 500) msg('SERVONO 500$', '#ff4d6d');
       else {
@@ -1172,10 +1230,17 @@ const SHOP_ACT = {
   },
   alien: {
     hint: p =>
-      p && isLeader(p.i)
-        ? 'RAPPORTO (' + (kills - alienMark) + ' XENO = ' + (kills - alienMark) * 25 + '$)'
-        : '!SOLO ZEPHYR O VESPER',
+      p && p.i === NOVA
+        ? truceOn()
+          ? '!TREGUA IN CORSO'
+          : truceCD > 0
+            ? '!NUOVA TREGUA TRA ' + fmtL(truceCD)
+            : 'NYX: TREGUA 15 MIN ' + TRUCE_COST + '$'
+        : p && isLeader(p.i)
+          ? 'RAPPORTO (' + (kills - alienMark) + ' XENO = ' + (kills - alienMark) * 25 + '$)'
+          : '!SOLO ZEPHYR O VESPER',
     use(p, s) {
+      if (p.i === NOVA) return startTruce(p, s);
       if (!isLeader(p.i)) {
         msg('SOLO ZEPHYR O VESPER POSSONO ENTRARE NEL CENTRO ALIENI', '#c6ff3a');
         return;
@@ -1215,12 +1280,14 @@ const SHOP_ACT = {
   },
 };
 function shopHint(s, p) {
+  if (shopOff(s)) return s.name + ' FUORI USO ' + fmtL(s.offT);
   const a = SHOP_ACT[s.type];
   const h = a ? a.hint(p, s) : '';
   if (!h) return '';
   return h[0] === '!' ? h.slice(1) : K('use') + ': ' + h;
 }
 function useShop(p, s, b) {
+  if (shopOff(s)) return msg(s.name + ' FUORI USO PER ' + fmtL(s.offT) + ' (XENO GOLD)', '#ffd21f');
   const a = SHOP_ACT[s.type];
   if (a) a.use(p, s, b);
 }
@@ -1243,11 +1310,7 @@ function interact(p) {
     } else if (s && !p.inCar) useShop(p, s, b);
   }
   if (p.inCar) return;
-  if (hit('radar')) {
-    radarOn = !radarOn;
-    msg(radarOn ? 'RADAR NEGOZI ACCESO' : 'RADAR NEGOZI SPENTO', '#ffe03c');
-    sfx('alert');
-  }
+  if (hit('radar')) toggleRadar();
   if (hit('med')) {
     if (!p.meds) msg('NESSUN FARMACO CON TE', '#ffe03c');
     else if (p.medOn) msg('CURA GIA IN CORSO', '#ffe03c');
@@ -1423,7 +1486,7 @@ function driveCar(p, c, dt, thr, brk, st) {
   p.fa = c.a;
   if (inGarage(c.x, c.y)) return deliverCar(p, c);
   const hq = shops.find(s => s.type === 'cop');
-  if (hq && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
+  if (hq && !shopOff(hq) && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
   if (hit('mount')) exitCar(p, true);
 }
 function updatePlayer(p, dt) {
@@ -1860,6 +1923,12 @@ function updateMate(b, dt) {
       }
       break;
     }
+    case 'robbing':
+      updateRob(b, dt);
+      break;
+    case 'truce':
+      charge(b, dt, true);
+      break;
     case 'out':
       b.outT -= dt;
       if (b.outT <= 0) release(b);
@@ -1879,7 +1948,8 @@ function update(dt) {
   meta.gameT += dt;
   const E = nightE();
   pAvail = state === 'play';
-  if (pAvail && hit('switch')) switchBiker();
+  if (pAvail && hit('switchHome')) switchBiker(true);
+  else if (pAvail && hit('switch')) switchBiker(shiftHeld());
   const pp = pAvail ? team[active] : null;
   if (pp) {
     updatePlayer(pp, dt);
@@ -1978,7 +2048,7 @@ function update(dt) {
     policeOp.t -= dt;
     if (policeOp.t <= 0) {
       policeOp.t = 12;
-      const live = enemies.filter(e => !e.dead);
+      const live = enemies.filter(e => !e.dead && e.kind !== 'gold');
       if (live.length) {
         const e = live[Math.floor(R() * live.length)];
         e.dead = true;
@@ -1991,6 +2061,7 @@ function update(dt) {
       if (policeOp.left <= 0 || !live.length) policeOp = null;
     }
   }
+  updateSpecial(dt);
   compact(enemies, e => !e.dead);
   const fr = Math.pow(0.92, dt * 60);
   for (const q of parts) {
@@ -2050,10 +2121,8 @@ function update(dt) {
   respawnT -= dt;
   if (respawnT <= 0) {
     respawnT = 60;
-    if (E < NIGHT && noSpawnT <= 0 && enemies.length < 20) {
-      spawnEnemy();
-      msg('UN NUOVO XENO E ENTRATO IN CITTA', ACID);
-    }
+    // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
+    if (E < NIGHT && noSpawnT <= 0 && enemies.length < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
   if (enemies.length >= 20) {
     if (xenoFullT === null) {
@@ -2066,7 +2135,7 @@ function update(dt) {
   else lowT = 0;
   if (ap && ap.i === 5 && !ap.nyx && churchCD <= 0 && state === 'play') {
     const ch = shops.find(s => s.type === 'church');
-    if (ch && dist(pBody.x, pBody.y, ch.x, ch.y) < 32) {
+    if (ch && !shopOff(ch) && dist(pBody.x, pBody.y, ch.x, ch.y) < 32) {
       ap.nyx = true;
       churchCD = 3600;
       fx.push({ k: 'flash', x: pBody.x, y: pBody.y, t: 0, dur: 1, r: 120, c: '#b48cff' });
@@ -2081,7 +2150,7 @@ function update(dt) {
     if (ap.hp <= 0) ap.lastSrc = 'nyx';
     if (!ceremony) {
       for (const e of enemies) {
-        if (e.follow) continue;
+        if (e.follow || e.kind) continue;
         const q = body(e);
         if (dist(q.x, q.y, pBody.x, pBody.y) < NYX_R) {
           e.follow = true;

@@ -2047,6 +2047,7 @@ addEventListener('keydown', e => {
     return;
   } // dentro l'evento: il browser lo consente
   if (!e.repeat) pressed.add(e.code);
+  if (!e.repeat && e.shiftKey && act === 'switch') pressed.add('ShiftSwitch'); // SHIFT + cambia biker
   keys[e.code] = true;
 });
 addEventListener('keyup', e => {
@@ -2088,6 +2089,7 @@ const PAD_BTN = {
   4: 'weapon',
   5: 'switch',
   8: 'map',
+  10: 'switchHome', // L3: cambia biker e fai rientrare quello lasciato
   9: 'pause',
   12: 'med',
   13: 'deliver',
@@ -2315,6 +2317,7 @@ const PADN_X = {
   nitro: 'Y',
   weapon: 'LB',
   switch: 'RB',
+  switchHome: 'L3',
   map: 'SELECT',
   pause: 'START',
   options: 'SELECT',
@@ -2660,6 +2663,7 @@ function resetRun() {
   bonds = [];
   bondT = 60;
   radarOn = false;
+  resetSpecial();
   clearDecals();
 }
 function newGame(start) {
@@ -2760,6 +2764,9 @@ function serialize() {
     missionT,
     bonds,
     bondT,
+    truceT,
+    truceCD,
+    advRadar,
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -2788,12 +2795,26 @@ function serialize() {
       px: b.px,
       py: b.py,
       ambDest: b.ambDest,
+      rob: b.rob || null,
       onFoot: b.onFoot || !!b.inCar,
       fx: body(b).x,
       fy: body(b).y,
     })),
-    enemies: enemies.map(e => ({ id: e.id, t: e.t, x: e.x, y: e.y, hp: e.hp, follow: !!e.follow })),
-    shops: shops.map(s => ({ anger: s.anger, calm: s.calm })),
+    enemies: enemies.map(e => ({
+      id: e.id,
+      t: e.t,
+      x: e.x,
+      y: e.y,
+      hp: e.hp,
+      follow: !!e.follow,
+      kind: e.kind || null,
+      spT: e.spT || 0,
+      arrived: !!e.arrived,
+      tgt: e.tgt == null ? -1 : e.tgt,
+      siegeT: e.siegeT || 0,
+      taken: e.taken || [],
+    })),
+    shops: shops.map(s => ({ anger: s.anger, calm: s.calm, offT: s.offT || 0 })),
     police: police
       .filter(c => !c.gone)
       .map(c => ({
@@ -2849,7 +2870,22 @@ function loadGame(S) {
     setW(team[i]);
   });
   active = S.active;
-  for (const d of S.enemies) addEnemy(d.t, d.x, d.y, d.hp, d.id).follow = !!d.follow;
+  for (const d of S.enemies) {
+    const e = addEnemy(d.t, d.x, d.y, d.hp, d.id);
+    e.follow = !!d.follow;
+    if (d.kind && XK[d.kind]) {
+      makeSpecial(e, d.kind);
+      e.hp = d.hp;
+      e.spT = d.spT || 0;
+      e.arrived = !!d.arrived;
+      e.tgt = d.tgt == null ? -1 : d.tgt;
+      e.siegeT = d.siegeT || 0;
+      e.taken = d.taken || [];
+    }
+  }
+  truceT = S.truceT || 0;
+  truceCD = S.truceCD || 0;
+  advRadar = !!S.advRadar;
   dispersed = S.dispersed || 0;
   maxHP = S.maxHP || 100;
   donors = S.donors || [];
@@ -2864,6 +2900,7 @@ function loadGame(S) {
     if (shops[i]) {
       shops[i].anger = d.anger;
       shops[i].calm = d.calm;
+      shops[i].offT = d.offT || 0;
     }
   });
   for (const d of S.police || []) {
@@ -3060,7 +3097,8 @@ function endNyx(p, why) {
     }
   if (why) msg(why, '#b48cff');
 }
-function switchBiker() {
+// home: SHIFT + cambia biker -> il biker lasciato rientra in rimessa
+function switchBiker(home) {
   if (team[active].nyx) {
     msg('NYX E ATTIVA: NON PUOI CAMBIARE BIKER', '#ff3df2');
     return;
@@ -3071,7 +3109,9 @@ function switchBiker() {
     return;
   }
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
-  park(team[active]);
+  const old = team[active];
+  park(old);
+  if (home) sendHome(old);
   activate(n);
   sfx('switch');
   msg(team[n].name + ' IN SELLA', team[n].ui);
@@ -3141,6 +3181,15 @@ function freeCaptives(e) {
 }
 function damageEnemy(e, d) {
   if (e.dead) return;
+  // tregua di Nova: nessuno attacca (lo Xeno Gold non la rispetta)
+  if (truceOn() && e.kind !== 'gold') {
+    if (T - (e.tp || 0) > 0.6) {
+      e.tp = T;
+      const q = body(e);
+      pop(q.x, q.y - 12, 'TREGUA', '#c6ff3a');
+    }
+    return;
+  }
   e.hp -= d;
   e.hitT = 0.12;
   const b = body(e);
@@ -3158,7 +3207,8 @@ function damageEnemy(e, d) {
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);
     freeCaptives(e);
-    if (kills % 5 === 0) msg(kills + ' XENO ABBATTUTI!', ACID);
+    if (e.kind) msg(XK[e.kind].name + ' ABBATTUTO!', XK[e.kind].c);
+    else if (kills % 5 === 0) msg(kills + ' XENO ABBATTUTI!', ACID);
   }
 }
 function damageCop(c, d) {
@@ -3444,32 +3494,43 @@ const SHOP_ACT = {
     },
   },
   cop: {
-    hint: p => (p && p.inCar ? '' : arrested().length ? 'CAUZIONE 1000$' : "!VIENI CON L'AUTO DELLA POLIZIA"),
-    use() {
-      const ar = arrested().sort((a, b) => b.outT - a.outT);
-      if (!ar.length) {
+    hint: p =>
+      p && p.inCar
+        ? ''
+        : p && p.i === MELANIE
+          ? 'LISTA RABBIA / RAPINALI TUTTI!'
+          : arrested().length
+            ? 'CAUZIONE 1000$'
+            : "!VIENI CON L'AUTO DELLA POLIZIA",
+    use(p) {
+      if (p.i === MELANIE) return openCopMenu(p); // lista della rabbia + missione automatica
+      if (!arrested().length) {
         msg("IL COMMISSARIO VUOLE VEDERE UN'AUTO DELLA POLIZIA", '#3a7bff');
         return;
       }
-      if (money < 1000) {
-        msg('LA CAUZIONE COSTA 1000$', '#ff4d6d');
-        return;
-      }
-      money -= 1000;
-      sfx('cash');
-      release(ar[0]);
-      msg(
-        'CAUZIONE PAGATA: ' +
-          ar[0].name +
-          ' E LIBERO' +
-          (ar.length > 1 ? ' (' + (ar.length - 1) + ' ANCORA DENTRO)' : ''),
-        '#3a7bff',
-      );
+      payBail();
     },
   },
   nasa: {
-    hint: () => 'SCUDO ANTI-XENO 500$',
+    hint: p =>
+      p && p.i === AKIRA
+        ? advRadar
+          ? '!RADAR AVANZATO GIA ATTIVO (' + K('radar') + ' X3)'
+          : 'RADAR AVANZATO ' + ADV_RADAR_COST + '$ (TUTTO IL TEAM)'
+        : 'SCUDO ANTI-XENO 500$',
     use(p) {
+      // Akira puo' comprare solo il radar avanzato
+      if (p.i === AKIRA) {
+        if (advRadar) msg('RADAR AVANZATO GIA ATTIVO', '#ffe03c');
+        else if (money < ADV_RADAR_COST) msg('SERVONO ' + ADV_RADAR_COST + '$', '#ff4d6d');
+        else {
+          money -= ADV_RADAR_COST;
+          advRadar = true;
+          sfx('cash');
+          msg('RADAR AVANZATO PER TUTTO IL TEAM: ' + K('radar') + ' TRE VOLTE PER SCEGLIERE', '#ff8a1f');
+        }
+        return;
+      }
       if (p.shield) msg('SCUDO GIA INSTALLATO', '#ffe03c');
       else if (money < 500) msg('SERVONO 500$', '#ff4d6d');
       else {
@@ -3548,10 +3609,17 @@ const SHOP_ACT = {
   },
   alien: {
     hint: p =>
-      p && isLeader(p.i)
-        ? 'RAPPORTO (' + (kills - alienMark) + ' XENO = ' + (kills - alienMark) * 25 + '$)'
-        : '!SOLO ZEPHYR O VESPER',
+      p && p.i === NOVA
+        ? truceOn()
+          ? '!TREGUA IN CORSO'
+          : truceCD > 0
+            ? '!NUOVA TREGUA TRA ' + fmtL(truceCD)
+            : 'NYX: TREGUA 15 MIN ' + TRUCE_COST + '$'
+        : p && isLeader(p.i)
+          ? 'RAPPORTO (' + (kills - alienMark) + ' XENO = ' + (kills - alienMark) * 25 + '$)'
+          : '!SOLO ZEPHYR O VESPER',
     use(p, s) {
+      if (p.i === NOVA) return startTruce(p, s);
       if (!isLeader(p.i)) {
         msg('SOLO ZEPHYR O VESPER POSSONO ENTRARE NEL CENTRO ALIENI', '#c6ff3a');
         return;
@@ -3591,12 +3659,14 @@ const SHOP_ACT = {
   },
 };
 function shopHint(s, p) {
+  if (shopOff(s)) return s.name + ' FUORI USO ' + fmtL(s.offT);
   const a = SHOP_ACT[s.type];
   const h = a ? a.hint(p, s) : '';
   if (!h) return '';
   return h[0] === '!' ? h.slice(1) : K('use') + ': ' + h;
 }
 function useShop(p, s, b) {
+  if (shopOff(s)) return msg(s.name + ' FUORI USO PER ' + fmtL(s.offT) + ' (XENO GOLD)', '#ffd21f');
   const a = SHOP_ACT[s.type];
   if (a) a.use(p, s, b);
 }
@@ -3619,11 +3689,7 @@ function interact(p) {
     } else if (s && !p.inCar) useShop(p, s, b);
   }
   if (p.inCar) return;
-  if (hit('radar')) {
-    radarOn = !radarOn;
-    msg(radarOn ? 'RADAR NEGOZI ACCESO' : 'RADAR NEGOZI SPENTO', '#ffe03c');
-    sfx('alert');
-  }
+  if (hit('radar')) toggleRadar();
   if (hit('med')) {
     if (!p.meds) msg('NESSUN FARMACO CON TE', '#ffe03c');
     else if (p.medOn) msg('CURA GIA IN CORSO', '#ffe03c');
@@ -3799,7 +3865,7 @@ function driveCar(p, c, dt, thr, brk, st) {
   p.fa = c.a;
   if (inGarage(c.x, c.y)) return deliverCar(p, c);
   const hq = shops.find(s => s.type === 'cop');
-  if (hq && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
+  if (hq && !shopOff(hq) && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
   if (hit('mount')) exitCar(p, true);
 }
 function updatePlayer(p, dt) {
@@ -4236,6 +4302,12 @@ function updateMate(b, dt) {
       }
       break;
     }
+    case 'robbing':
+      updateRob(b, dt);
+      break;
+    case 'truce':
+      charge(b, dt, true);
+      break;
     case 'out':
       b.outT -= dt;
       if (b.outT <= 0) release(b);
@@ -4255,7 +4327,8 @@ function update(dt) {
   meta.gameT += dt;
   const E = nightE();
   pAvail = state === 'play';
-  if (pAvail && hit('switch')) switchBiker();
+  if (pAvail && hit('switchHome')) switchBiker(true);
+  else if (pAvail && hit('switch')) switchBiker(shiftHeld());
   const pp = pAvail ? team[active] : null;
   if (pp) {
     updatePlayer(pp, dt);
@@ -4354,7 +4427,7 @@ function update(dt) {
     policeOp.t -= dt;
     if (policeOp.t <= 0) {
       policeOp.t = 12;
-      const live = enemies.filter(e => !e.dead);
+      const live = enemies.filter(e => !e.dead && e.kind !== 'gold');
       if (live.length) {
         const e = live[Math.floor(R() * live.length)];
         e.dead = true;
@@ -4367,6 +4440,7 @@ function update(dt) {
       if (policeOp.left <= 0 || !live.length) policeOp = null;
     }
   }
+  updateSpecial(dt);
   compact(enemies, e => !e.dead);
   const fr = Math.pow(0.92, dt * 60);
   for (const q of parts) {
@@ -4426,10 +4500,8 @@ function update(dt) {
   respawnT -= dt;
   if (respawnT <= 0) {
     respawnT = 60;
-    if (E < NIGHT && noSpawnT <= 0 && enemies.length < 20) {
-      spawnEnemy();
-      msg('UN NUOVO XENO E ENTRATO IN CITTA', ACID);
-    }
+    // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
+    if (E < NIGHT && noSpawnT <= 0 && enemies.length < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
   if (enemies.length >= 20) {
     if (xenoFullT === null) {
@@ -4442,7 +4514,7 @@ function update(dt) {
   else lowT = 0;
   if (ap && ap.i === 5 && !ap.nyx && churchCD <= 0 && state === 'play') {
     const ch = shops.find(s => s.type === 'church');
-    if (ch && dist(pBody.x, pBody.y, ch.x, ch.y) < 32) {
+    if (ch && !shopOff(ch) && dist(pBody.x, pBody.y, ch.x, ch.y) < 32) {
       ap.nyx = true;
       churchCD = 3600;
       fx.push({ k: 'flash', x: pBody.x, y: pBody.y, t: 0, dur: 1, r: 120, c: '#b48cff' });
@@ -4457,7 +4529,7 @@ function update(dt) {
     if (ap.hp <= 0) ap.lastSrc = 'nyx';
     if (!ceremony) {
       for (const e of enemies) {
-        if (e.follow) continue;
+        if (e.follow || e.kind) continue;
         const q = body(e);
         if (dist(q.x, q.y, pBody.x, pBody.y) < NYX_R) {
           e.follow = true;
@@ -4632,6 +4704,7 @@ function followMove(e, dt) {
   steerTo(e, tx, ty, spd, dt);
 }
 function updateEnemy(e, dt) {
+  if (e.kind && specialMove(e, dt)) return; // Xeno Rosso / Silver / Gold
   if (e.follow && nyxOn()) {
     e.cd -= dt;
     e.hitT -= dt;
@@ -4644,7 +4717,8 @@ function updateEnemy(e, dt) {
   e.cd -= dt;
   e.hitT -= dt;
   e.punchT -= dt;
-  const safe = !pAvail || inGarage(pb.x, pb.y);
+  // tregua di Nova: nessuno Xeno attacca (tranne il Gold)
+  const safe = !pAvail || inGarage(pb.x, pb.y) || (truceOn() && e.kind !== 'gold');
   if (e.state === 'wander') {
     if (!safe && (d < 110 || (d < 250 && los(eb.x, eb.y, pb.x, pb.y)))) {
       e.state = 'chase';
@@ -4653,7 +4727,7 @@ function updateEnemy(e, dt) {
       if (d < 400) sfx('alert');
     } else {
       if (e.onFoot) e.onFoot = false;
-      wander(e, dt, BASE * 0.7 * e.spd);
+      wander(e, dt, BASE * 0.7 * e.spd * (e.mul || 1));
       return;
     }
   }
@@ -4737,7 +4811,7 @@ function updateEnemy(e, dt) {
       ty = f.y;
     }
   }
-  let spd = BASE * 0.85 * (e.spd > 1 ? 1.75 : 1);
+  let spd = xenoSpd(e);
   if (w && w.k === 'gun' && sees && d < w.rng * 0.55) spd *= 0.2;
   steerTo(e, tx, ty, spd, dt);
   if (w && w.k === 'gun') {
@@ -5000,6 +5074,641 @@ function recallCops(c, out, dt) {
     k.walk += dt * 12;
     k.fa = Math.atan2(dy, dx);
   }
+}
+
+</script>
+<script>
+// ===== js/special.js =====
+'use strict';
+// =====================================================================
+//  FUNZIONI SPECIALI
+//  - Xeno Rosso / Xeno Silver / Xeno Gold
+//  - tregua di Nova (centro alieni)
+//  - missione automatica "RAPINALI TUTTI!" di Melanie (commissariato)
+//  - radar avanzato di Akira (centro NASA)
+//  - SHIFT + cambia biker: il biker lasciato rientra in rimessa
+//  - menu a lista generico (radar avanzato, commissariato)
+// =====================================================================
+const NOVA = 5;
+const PXM = 8; // pixel per metro
+const RED_LEASH = 200 * PXM; // lo Xeno Rosso non si allontana piu' di 200 m dalla rimessa
+const TRUCE_DUR = 15 * 60,
+  TRUCE_CD = 3600,
+  TRUCE_COST = 5000,
+  TRUCE_CAP = 15;
+const ADV_RADAR_COST = 10000;
+const ROB_PAY = 2000;
+const SIEGE_T = 30 * 60, // assedio dello Xeno Gold prima che l'edificio cada
+  OFF_T = 3600; // edificio unico fuori uso per 1 ora
+const XK = {
+  red: {
+    name: 'XENO ROSSO',
+    c: '#ff2b2b',
+    hp: 40,
+    mul: 1,
+    r: bikeSprite('#ff2b2b', '#ff9a9a', true, true, '#3a0808', '#b01f1f', '#ffe03c'),
+    e: bikeSprite('#ff2b2b', '#ff9a9a', false, true),
+  },
+  silver: {
+    name: 'XENO SILVER',
+    c: '#d8dee8',
+    hp: 90,
+    mul: 1.5,
+    r: bikeSprite('#c8d0dc', '#ffffff', true, true, '#2a2e38', '#8a93a6', '#3cf2ff'),
+    e: bikeSprite('#c8d0dc', '#ffffff', false, true),
+  },
+  gold: {
+    name: 'XENO GOLD',
+    c: '#ffd21f',
+    hp: 90,
+    mul: 2.5,
+    r: bikeSprite('#ffd21f', '#fff2a0', true, true, '#3a2a00', '#b08a10', '#ff3d3d'),
+    e: bikeSprite('#ffd21f', '#fff2a0', false, true),
+  },
+};
+let truceT = 0,
+  truceCD = 0,
+  advRadar = false,
+  advOn = false,
+  radarTgt = null,
+  listMenu = null,
+  specT = 0;
+function resetSpecial() {
+  truceT = 0;
+  truceCD = 0;
+  advRadar = false;
+  advOn = false;
+  radarTgt = null;
+  listMenu = null;
+  specT = 0;
+}
+const truceOn = () => truceT > 0;
+const isSpecial = e => !!e.kind;
+const shopOff = s => s && s.offT > 0;
+
+// ---------- Xeno speciali ----------
+function makeSpecial(e, kind) {
+  const k = XK[kind];
+  e.kind = kind;
+  e.hp = k.hp;
+  e.mul = k.mul;
+  e.follow = false;
+  e.spT = 0;
+  e.arrived = false;
+  e.meet = false;
+  e.tgt = -1;
+  e.siegeT = 0;
+  e.taken = [];
+  e.gpath = null;
+  return e;
+}
+function spawnXeno() {
+  const e = spawnEnemy();
+  const E = meta.gameT;
+  if (E >= 90 * 60 && R() < 1 / 30) {
+    makeSpecial(e, 'silver');
+    msg('UNO XENO SILVER E ENTRATO IN CITTA!', XK.silver.c);
+    sfx('alert');
+  } else if (E >= 30 * 60 && R() < 0.1) {
+    makeSpecial(e, 'red');
+    msg('UNO XENO ROSSO PUNTA VERSO LA RIMESSA!', XK.red.c);
+    sfx('alert');
+  } else msg('UN NUOVO XENO E ENTRATO IN CITTA', ACID);
+  return e;
+}
+// segue la rete stradale fino a (x,y); true quando il percorso e' finito
+function navTo(e, x, y, spd, dt) {
+  e.onFoot = false;
+  e.lchg = 0;
+  e.gT = (e.gT || 0) - dt;
+  if (!e.gpath || e.gT <= 0 || e.gx !== x || e.gy !== y) {
+    e.gT = 10;
+    e.gx = x;
+    e.gy = y;
+    e.gpath = (dijkstra(nearestNodeLOS(e.x, e.y), nearestNodeLOS(x, y)) || []).map(i => nodes[i]);
+    e.gi = 0;
+  }
+  let q = e.gpath[e.gi];
+  while (q && dist(e.x, e.y, q.x, q.y) < 16) q = e.gpath[++e.gi];
+  if (!q) {
+    if (dist(e.x, e.y, x, y) > 10 && los(e.x, e.y, x, y)) steerTo(e, x, y, spd * 0.5, dt);
+    else e.v *= Math.pow(0.85, dt * 60);
+    return true;
+  }
+  steerTo(e, q.x, q.y, spd, dt);
+  return false;
+}
+const xenoSpd = e => BASE * 0.85 * (e.spd > 1 ? 1.75 : 1) * (e.mul || 1);
+// movimento speciale: true se ha gia' gestito lo Xeno in questo passo
+function specialMove(e, dt) {
+  if (e.kind === 'silver') {
+    e.spT += dt;
+    if (e.spT >= 15 * 60) becomeGold(e);
+    return false;
+  }
+  if (e.kind === 'red') {
+    const g = nodes[garage.node];
+    if (!e.arrived) {
+      if (dist(e.x, e.y, g.x, g.y) < 300) e.arrived = true;
+      else return redNav(e, g, dt);
+    }
+    if (e.meet) return redNav(e, g, dt);
+    if (dist(e.x, e.y, garage.cx, garage.cy) > RED_LEASH) {
+      e.state = 'wander';
+      return redNav(e, g, dt);
+    }
+    return false;
+  }
+  if (e.kind === 'gold') {
+    e.cd -= dt;
+    e.hitT -= dt;
+    if (e.tgt < 0 || !shops[e.tgt]) e.tgt = goldNext(e);
+    if (e.tgt >= 0) {
+      const s = shops[e.tgt];
+      const done = navTo(e, s.x, s.y, xenoSpd(e), dt);
+      if (done || dist(e.x, e.y, s.x, s.y) < 48) {
+        if (!e.siegeT) msg('LO XENO GOLD ASSEDIA ' + s.name + '! 30 MIN PER FERMARLO', XK.gold.c);
+        e.siegeT += dt;
+        if (R() < dt * 3) spark(s.x + (R() - 0.5) * 30, s.y + (R() - 0.5) * 20, XK.gold.c, 3, 50);
+        if (e.siegeT >= SIEGE_T) conquer(e, s);
+      }
+    }
+    // non insegue nessuno ma colpisce chi gli sta addosso (anche durante la tregua)
+    if (pAvail && e.cd <= 0 && !inGarage(pBody.x, pBody.y) && dist(e.x, e.y, pBody.x, pBody.y) < 34) {
+      e.cd = 1.2;
+      damagePlayer(15, 'xeno', e, 'weapon');
+      fx.push({
+        k: 'swords',
+        x: e.x,
+        y: e.y,
+        a: Math.atan2(pBody.y - e.y, pBody.x - e.x),
+        t: 0,
+        dur: 0.22,
+        r: 30,
+        c: XK.gold.c,
+        own: e,
+      });
+      sfx('slash');
+    }
+    return true;
+  }
+  return false;
+}
+function redNav(e, g, dt) {
+  e.cd -= dt;
+  e.hitT -= dt;
+  navTo(e, g.x, g.y, xenoSpd(e), dt);
+  return true;
+}
+function becomeGold(e) {
+  e.kind = 'gold';
+  e.mul = XK.gold.mul;
+  e.hp = Math.max(e.hp, XK.gold.hp);
+  e.tgt = -1;
+  e.siegeT = 0;
+  e.taken = [];
+  e.gpath = null;
+  e.state = 'wander';
+  const b = body(e);
+  fx.push({ k: 'flash', x: b.x, y: b.y, t: 0, dur: 0.8, r: 90, c: XK.gold.c });
+  sfx('boom');
+  msg('LO XENO SILVER E DIVENTATO XENO GOLD! ATTACCA GLI EDIFICI UNICI', XK.gold.c);
+}
+// edificio unico piu' vicino non ancora conquistato: la chiesa sempre per ultima
+function goldNext(e) {
+  let best = -1,
+    bd = 1e9,
+    church = -1;
+  for (const s of shops) {
+    if (!SHOP_T[s.type].sp || e.taken.includes(s.i)) continue;
+    if (s.type === 'church') {
+      church = s.i;
+      continue;
+    }
+    const d = dist(e.x, e.y, s.x, s.y);
+    if (d < bd) {
+      bd = d;
+      best = s.i;
+    }
+  }
+  return best >= 0 ? best : church;
+}
+function conquer(e, s) {
+  s.offT = OFF_T;
+  e.taken.push(s.i);
+  e.tgt = -1;
+  e.siegeT = 0;
+  e.gpath = null;
+  fx.push({ k: 'flash', x: s.x, y: s.y, t: 0, dur: 1, r: 80, c: XK.gold.c });
+  sfx('boom');
+  shake = Math.max(shake, 4);
+  msg(s.name + ' E CADUTO: FUORI USO PER 1 ORA', XK.gold.c);
+  if (s.type === 'church') endGame(false, 'LO XENO GOLD HA ABBATTUTO TUTTI GLI EDIFICI UNICI');
+}
+// 3 Xeno Rossi davanti alla rimessa si fondono in uno Xeno Silver che rapisce 2 biker
+function fuseReds(list) {
+  let x = 0,
+    y = 0;
+  for (const e of list) {
+    x += e.x / list.length;
+    y += e.y / list.length;
+    e.dead = true;
+    spark(e.x, e.y, XK.red.c, 12, 90);
+  }
+  const s = makeSpecial(addEnemy(Math.floor(R() * NB), x, y, XK.silver.hp, nextEid++), 'silver');
+  fx.push({ k: 'flash', x, y, t: 0, dur: 0.8, r: 100, c: XK.silver.c });
+  sfx('boom');
+  shake = Math.max(shake, 5);
+  msg('3 XENO ROSSI SI FONDONO: XENO SILVER!', XK.silver.c);
+  const cand = team.filter(b => b.status === 'garage');
+  for (let i = cand.length - 1; i > 0; i--) {
+    const j = Math.floor(R() * (i + 1));
+    [cand[i], cand[j]] = [cand[j], cand[i]];
+  }
+  const taken = cand.slice(0, 2);
+  for (const b of taken) {
+    b.status = 'captured';
+    b.captor = s.id;
+    b.capT = 600;
+    b.medOn = false;
+  }
+  if (taken.length)
+    msg('RAPITI ' + taken.map(b => b.name).join(' E ') + ' DALLA RIMESSA! 10 MIN PER ABBATTERE LO SILVER', '#ff3df2');
+}
+// ---------- tregua di Nova ----------
+function startTruce(p, s) {
+  if (p.nyx) return msg('NYX E GIA ATTIVA', '#ff3df2');
+  if (truceOn()) return msg('TREGUA GIA IN CORSO', '#c6ff3a');
+  if (truceCD > 0) return msg('NUOVA TREGUA TRA ' + fmtL(truceCD), '#ffe03c');
+  if (money < TRUCE_COST) return msg('IL PROCLAMA COSTA ' + TRUCE_COST + '$', '#ff4d6d');
+  money -= TRUCE_COST;
+  truceT = TRUCE_DUR;
+  truceCD = TRUCE_CD;
+  if (p.inCar) exitCar(p, false);
+  p.onFoot = false;
+  p.walkPath = null;
+  p.v = 0;
+  p.nitroT = 0;
+  p.medOn = false;
+  p.hp = 1;
+  p.status = 'truce';
+  for (const e of enemies)
+    if (e.kind !== 'gold' && e.state === 'chase') {
+      e.state = 'wander';
+      e.onFoot = false;
+      e.lchg = 0;
+    }
+  fx.push({ k: 'flash', x: s.x, y: s.y, t: 0, dur: 1.2, r: 140, c: '#b48cff' });
+  sfx('switch');
+  sfx('nitro');
+  msg('NOVA DIVENTA NYX E PROCLAMA LA TREGUA: 15 MIN SENZA ATTACCHI', '#ff3df2');
+  msg('NOVA RESTA AL CENTRO ALIENI CON 1 DI VITA', '#b48cff');
+  leaveActive();
+}
+function endTruce() {
+  truceT = 0;
+  const n = team[NOVA];
+  if (n && n.status === 'truce') {
+    n.status = 'idle';
+    n.waitT = 0;
+    n.chkT = 0;
+  }
+  msg('LA TREGUA E FINITA: GLI XENO TORNANO A CACCIA', '#ff4d6d');
+  sfx('alert');
+}
+// ---------- Melanie: RAPINALI TUTTI! ----------
+const angerCnt = add => shops.filter(s => s.type === 'shop' && Math.min(5, s.anger + add) > 3).length;
+const arrestRisk = () => Math.min(1, 0.2 * angerCnt(1));
+function startRobAll(p) {
+  if (p.status !== 'active' || p.i !== MELANIE) return;
+  if (p.inCar) exitCar(p, false);
+  p.onFoot = false;
+  p.walkPath = null;
+  p.v = 0;
+  p.nitroT = 0;
+  // giro dei negozi: ogni volta il piu' vicino
+  const left = shops.filter(s => s.type === 'shop');
+  const seq = [];
+  let x = p.x,
+    y = p.y;
+  while (left.length) {
+    let k = 0,
+      bd = 1e9;
+    left.forEach((s, j) => {
+      const d = dist(x, y, s.x, s.y);
+      if (d < bd) {
+        bd = d;
+        k = j;
+      }
+    });
+    const s = left.splice(k, 1)[0];
+    seq.push(s.i);
+    x = s.x;
+    y = s.y;
+  }
+  p.rob = { seq, k: 0 };
+  p.path = null;
+  p.status = 'robbing';
+  sfx('sneak');
+  msg('MELANIE PARTE: RAPINALI TUTTI! (' + seq.length + ' NEGOZI)', '#ffd21f');
+  leaveActive();
+}
+function updateRob(b, dt) {
+  const r = b.rob;
+  if (!r) {
+    b.status = 'idle';
+    b.waitT = 0;
+    return;
+  }
+  const tgt = r.k < r.seq.length ? shops[r.seq[r.k]] : null;
+  if (!b.path) {
+    const s0 = nearestNodeLOS(b.x, b.y),
+      t0 = tgt ? nearestNodeLOS(tgt.x, tgt.y) : garage.node;
+    b.path = (dijkstra(s0, t0) || []).map(i => ({ x: nodes[i].x, y: nodes[i].y }));
+    if (!tgt) b.path.push({ x: garage.bays[b.i].x, y: garage.bays[b.i].y });
+    b.pi = 0;
+  }
+  const q = b.path[b.pi];
+  if (q) {
+    const dx = q.x - b.x,
+      dy = q.y - b.y,
+      d = Math.hypot(dx, dy),
+      sp = speedOf(b) * dt;
+    b.a += clamp(angDiff(Math.atan2(dy, dx), b.a), -8 * dt, 8 * dt);
+    if (d <= sp) {
+      b.x = q.x;
+      b.y = q.y;
+      b.pi++;
+    } else {
+      b.x += (dx / d) * sp;
+      b.y += (dy / d) * sp;
+      b.v = speedOf(b);
+    }
+    if (b.pi < b.path.length) return;
+  }
+  b.path = null;
+  b.v = 0;
+  if (tgt) {
+    r.k++;
+    pop(tgt.x, tgt.y - 24, 'RAPINA!', '#ffd21f');
+    if (dist(tgt.x, tgt.y, cam.x, cam.y) < 400) sfx('cash');
+  } else finishRob(b);
+}
+function finishRob(b) {
+  b.rob = null;
+  toBay(b, 'garage');
+  money += ROB_PAY;
+  for (const s of shops)
+    if (s.type === 'shop') {
+      s.anger = Math.min(5, s.anger + 1);
+      s.calm = 0;
+    }
+  b.hp = 1;
+  b.medOn = false;
+  sfx('cash');
+  pop(garage.cx, garage.cy - 20, '+' + ROB_PAY + '$', '#ffd21f');
+  msg('MELANIE E TORNATA: +' + ROB_PAY + '$ - RABBIA +1 IN TUTTI I NEGOZI', '#ffd21f');
+  const n = angerCnt(0),
+    ch = Math.min(1, 0.2 * n);
+  if (ch > 0 && R() < ch) {
+    b.status = 'out';
+    b.outR = 'ARRESTATO';
+    b.outT = 3600;
+    msg('MELANIE ARRESTATA (RISCHIO ' + Math.round(ch * 100) + '%): FUORI 1 ORA', '#3a7bff');
+    sfx('siren');
+  } else if (ch > 0) msg('MELANIE LA FA FRANCA (RISCHIO ' + Math.round(ch * 100) + '%)', '#ffd21f');
+}
+function payBail() {
+  const ar = arrested().sort((a, b) => b.outT - a.outT);
+  if (!ar.length) return msg('NESSUN BIKER ARRESTATO', '#3a7bff');
+  if (money < 1000) return msg('LA CAUZIONE COSTA 1000$', '#ff4d6d');
+  money -= 1000;
+  sfx('cash');
+  release(ar[0]);
+  msg(
+    'CAUZIONE PAGATA: ' + ar[0].name + ' E LIBERO' + (ar.length > 1 ? ' (' + (ar.length - 1) + ' ANCORA DENTRO)' : ''),
+    '#3a7bff',
+  );
+}
+function openCopMenu(p) {
+  const items = [];
+  if (arrested().length) items.push({ t: 'PAGA CAUZIONE 1000$', c: '#3a7bff', act: payBail });
+  items.push({
+    t: 'AVVIA: RAPINALI TUTTI! (+' + ROB_PAY + '$)',
+    c: '#ffd21f',
+    act: () => startRobAll(team[active]),
+  });
+  items.push({ t: 'CHIUDI', c: '#7a6f99' });
+  listMenu = {
+    title: 'COMMISSARIATO',
+    sub: 'LISTA DELLA RABBIA NEI NEGOZI',
+    items,
+    sel: 0,
+    draw: drawAngerList,
+    h: 132,
+  };
+  sfx('menu');
+}
+function drawAngerList(x, y) {
+  const list = shops.filter(s => s.type === 'shop');
+  const half = Math.ceil(list.length / 2);
+  list.forEach((s, j) => {
+    const cx = x + (j < half ? 0 : 210),
+      cy = y + (j % half) * 10;
+    const col = s.anger >= 4 ? '#ff4d6d' : s.anger >= 3 ? '#ffb03c' : s.anger ? '#ffe03c' : '#7a6f99';
+    txt(s.name, cx, cy, col);
+    for (let k = 0; k < 5; k++) {
+      ctx.fillStyle = k < s.anger ? col : '#2a2440';
+      ctx.fillRect(cx + 92 + k * 6, cy + 1, 4, 5);
+    }
+    txt(s.anger + '', cx + 126, cy, col);
+  });
+  const rk = arrestRisk();
+  txt(
+    'MISSIONE AUTOMATICA: MELANIE VISITA TUTTI I NEGOZI (NON GIOCABILE) - RIENTRO +' + ROB_PAY + '$',
+    VW / 2,
+    y + half * 10 + 6,
+    '#ffd21f',
+    1,
+    'center',
+  );
+  txt(
+    'POI: RABBIA +1 OVUNQUE, MELANIE A 1 DI VITA, ARRESTO ' + Math.round(rk * 100) + '% (20% PER NEGOZIO OLTRE 3)',
+    VW / 2,
+    y + half * 10 + 17,
+    rk >= 1 ? '#ff4d6d' : '#c9c2e6',
+    1,
+    'center',
+  );
+}
+// ---------- radar avanzato (Akira, centro NASA) ----------
+function toggleRadar() {
+  sfx('alert');
+  if (!advRadar) {
+    radarOn = !radarOn;
+    return msg(radarOn ? 'RADAR NEGOZI ACCESO' : 'RADAR NEGOZI SPENTO', '#ffe03c');
+  }
+  // tre possibilita': negozi -> avanzato -> spento
+  if (!radarOn && !advOn) {
+    radarOn = true;
+    msg('RADAR NEGOZI ACCESO', '#ffe03c');
+  } else if (radarOn) {
+    radarOn = false;
+    openRadarMenu();
+  } else {
+    advOn = false;
+    radarTgt = null;
+    msg('RADAR SPENTO', '#7a6f99');
+  }
+}
+function openRadarMenu() {
+  const pb = body(team[active]),
+    items = [];
+  const m = d => ' (' + Math.round(d / PXM) + 'M)';
+  const pick = (t, c, tg) => items.push({ t, c, act: () => setRadar(tg) });
+  const xs = enemies
+    .filter(e => !e.dead)
+    .map(e => ({ e, d: dist(body(e).x, body(e).y, pb.x, pb.y) }))
+    .sort((a, b) => a.d - b.d);
+  for (const o of xs.filter(o => o.e.kind)) pick(XK[o.e.kind].name + m(o.d), XK[o.e.kind].c, { k: 'xeno', id: o.e.id });
+  xs.filter(o => !o.e.kind)
+    .slice(0, 3)
+    .forEach((o, j) => pick('XENO ' + (j + 1) + m(o.d), ACID, { k: 'xeno', id: o.e.id }));
+  if (mission) pick('MISSIONE PACCO', '#ffe03c', { k: 'mission' });
+  for (const ty of ['pharm', 'mech', 'shop'])
+    pick(SHOP_T[ty].name + ' PIU VICINO', SHOP_T[ty].c, { k: 'near', type: ty });
+  for (const s of shops)
+    if (SHOP_T[s.type].sp) pick(s.name + m(dist(s.x, s.y, pb.x, pb.y)), SHOP_T[s.type].c, { k: 'shop', i: s.i });
+  pick('RIMESSA', '#ff3df2', { k: 'garage' });
+  listMenu = {
+    title: 'RADAR AVANZATO',
+    sub: 'SCEGLI IL SOLO OBIETTIVO DA SEGUIRE',
+    items,
+    sel: 0,
+    key: 'radar',
+    cancel: () => msg('RADAR SPENTO', '#7a6f99'),
+  };
+}
+function setRadar(tg) {
+  advOn = true;
+  radarTgt = tg;
+  const r = radarPos(body(team[active]));
+  msg('RADAR AVANZATO: ' + (r ? r.n : 'OBIETTIVO'), '#ff8a1f');
+}
+// posizione e nome dell'obiettivo del radar avanzato (null = perso)
+function radarPos(pb) {
+  const t = radarTgt;
+  if (!t) return null;
+  if (t.k === 'xeno') {
+    const e = enemies.find(e => e.id === t.id && !e.dead);
+    if (!e) return null;
+    const b = body(e);
+    return { x: b.x, y: b.y, n: e.kind ? XK[e.kind].name : 'XENO' };
+  }
+  if (t.k === 'mission') {
+    const s = missionTarget();
+    return s ? { x: s.x, y: s.y, n: mission.carrier < 0 ? 'PACCO ' + s.name : 'CONSEGNA ' + s.name } : null;
+  }
+  if (t.k === 'near') {
+    let best = null,
+      bd = 1e9;
+    for (const s of shops)
+      if (s.type === t.type) {
+        const d = dist(s.x, s.y, pb.x, pb.y);
+        if (d < bd) {
+          bd = d;
+          best = s;
+        }
+      }
+    return best ? { x: best.x, y: best.y, n: best.name } : null;
+  }
+  if (t.k === 'shop') {
+    const s = shops[t.i];
+    return s ? { x: s.x, y: s.y, n: s.name } : null;
+  }
+  return { x: garage.cx, y: garage.cy, n: 'RIMESSA' };
+}
+// ---------- SHIFT + cambia biker: chi resta indietro torna in rimessa ----------
+const shiftHeld = () => pressed.has('ShiftSwitch') || !!(keys.ShiftLeft || keys.ShiftRight);
+function sendHome(b) {
+  if (b.status !== 'idle') return;
+  const pl = planReturn(b);
+  if (!pl) return msg(b.name + ' NON TROVA LA STRADA PER LA RIMESSA', '#ff4d6d');
+  b.path = pl.pts;
+  b.pi = 0;
+  b.status = 'returning';
+  b.waitT = 0;
+  b.waitCharge = false;
+  msg(b.name + ' RIENTRA IN RIMESSA' + (b.bat < pl.len / speedOf(b) ? ' (BATTERIA NON BASTA, SI FERMERA)' : ''), b.ui);
+}
+// ---------- aggiornamento (chiamato da update) ----------
+function updateSpecial(dt) {
+  truceCD = Math.max(0, truceCD - dt);
+  if (truceT > 0) {
+    truceT -= dt;
+    if (truceT <= 0) endTruce();
+  }
+  for (const s of shops)
+    if (s.offT > 0) {
+      s.offT -= dt;
+      if (s.offT <= 0) {
+        s.offT = 0;
+        msg(s.name + ' TORNA OPERATIVO', SHOP_T[s.type].c);
+      }
+    }
+  specT -= dt;
+  if (specT > 0) return;
+  specT = 0.5;
+  const g = nodes[garage.node];
+  const reds = enemies.filter(e => e.kind === 'red' && !e.dead && e.arrived);
+  const meet = reds.length >= 3 && !truceOn();
+  for (const e of reds) e.meet = meet;
+  if (meet) {
+    const near = reds.filter(e => dist(e.x, e.y, g.x, g.y) < 110);
+    if (near.length >= 3) fuseReds(near.slice(0, 3));
+  }
+}
+// ---------- menu a lista ----------
+function listInput() {
+  const m = listMenu,
+    n = m.items.length;
+  if (mhit('up')) m.sel = (m.sel + n - 1) % n;
+  if (mhit('down')) m.sel = (m.sel + 1) % n;
+  if (mhit('ok')) {
+    const it = m.items[m.sel];
+    listMenu = null;
+    if (it.act) it.act();
+    else if (m.cancel) m.cancel();
+  } else if (mhit('back') || take('use') || (m.key && take(m.key))) {
+    listMenu = null;
+    if (m.cancel) m.cancel();
+  }
+}
+function drawListMenu() {
+  const m = listMenu;
+  ctx.fillStyle = 'rgba(5,3,12,.85)';
+  ctx.fillRect(0, 0, VW, VH);
+  const ih = 12,
+    h = 58 + (m.h || 0) + m.items.length * ih,
+    y0 = Math.max(4, Math.round(VH / 2 - h / 2));
+  panel(100, y0, 440, h);
+  txt(m.title, VW / 2, y0 + 8, '#ffffff', 2, 'center');
+  txt(m.sub, VW / 2, y0 + 26, '#c9c2e6', 1, 'center');
+  let y = y0 + 40;
+  if (m.draw) {
+    m.draw(116, y);
+    y += m.h;
+  }
+  m.items.forEach((it, k) => {
+    const yy = y + k * ih;
+    if (k === m.sel) {
+      ctx.fillStyle = 'rgba(255,61,242,.18)';
+      ctx.fillRect(110, yy - 2, 420, ih);
+      txt('>', 114, yy, '#ffffff');
+    }
+    txt(it.t, 126, yy, it.c || '#ffffff');
+  });
+  txt(KM('ok') + ' SCEGLI   -   ' + KM('back') + ' CHIUDI', VW / 2, y0 + h - 12, '#7a6f99', 1, 'center');
 }
 
 </script>
@@ -5484,7 +6193,8 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
     lcone(o, 0.75);
     lglow(o.x, o.y, 18, '#fff2d8', 0.25);
   };
-  for (const b of team) if (b.status === 'returning' || (b.status === 'active' && playing && !b.onFoot)) car(b);
+  for (const b of team)
+    if (b.status === 'returning' || b.status === 'robbing' || (b.status === 'active' && playing && !b.onFoot)) car(b);
   for (const e of enemies)
     if (!e.onFoot) {
       car(e);
@@ -5607,7 +6317,13 @@ function drawWorld(cx, cy, dt) {
       lab(b.name, b.x, b.y - 18, b.ui);
       lab(b.waitT > 0 ? fmt(b.waitT) : 'IN CARICA', b.x, b.y + 9, '#ffe03c');
     } else if (b.status === 'returning') lab(b.name, b.x, b.y - 18, b.ui);
-    else if (empty)
+    else if (b.status === 'robbing') {
+      lab(b.name, b.x, b.y - 18, b.ui);
+      lab('RAPINALI TUTTI! ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), b.x, b.y + 9, '#ffd21f');
+    } else if (b.status === 'truce') {
+      lab(b.name, b.x, b.y - 18, b.ui);
+      lab('TREGUA ' + fmt(truceT), b.x, b.y + 9, '#c6ff3a');
+    } else if (empty)
       lab(
         b.status === 'captured'
           ? 'RAPITO'
@@ -5651,8 +6367,9 @@ function drawWorld(cx, cy, dt) {
     const t = missionTarget();
     if (vis(t.x, t.y) && blink(3)) lab(mission.carrier < 0 ? 'PACCO!' : 'CONSEGNA QUI', t.x, t.y - 31, '#ffe03c');
   }
+  for (const s of shops) if (shopOff(s) && vis(s.x, s.y)) lab('FUORI USO ' + fmtL(s.offT), s.x, s.y - 40, '#ffd21f');
   for (const e of enemies) {
-    const s = enemySpr(e.t);
+    const s = e.kind ? XK[e.kind] : enemySpr(e.t);
     if (!vis(e.x, e.y) && !vis(e.fx, e.fy)) continue;
     if (e.onFoot) {
       drawVeh(s.e, e.x, e.y, e.a);
@@ -5666,6 +6383,11 @@ function drawWorld(cx, cy, dt) {
     if (e.follow && nyxOn() && !e.kneel && Math.floor(T * 2 + e.id) % 4 === 0) {
       ctx.fillStyle = '#b48cff';
       ctx.fillRect(Math.round(e.x) - 1, Math.round(e.y) - 12, 3, 3);
+    }
+    if (e.kind) {
+      const k = XK[e.kind];
+      lab(k.name + ' ' + Math.ceil(e.hp), e.x, e.y - 16, k.c);
+      if (e.kind === 'gold') ring(e.x, e.y, 14, blink(4) ? k.c : '#fff2a0', 16, T * 3, 1);
     }
     if (e.kneel && ceremony) lab(ceremony.said ? '...' : 'DEA DELLA NOTTE', e.fx, e.fy - 14, ACID);
     const caps = team.filter(t => t.status === 'captured' && t.captor === e.id);
@@ -5994,6 +6716,10 @@ function statusTxt(b) {
       ];
     case 'captured':
       return ['RAPITO ' + shortT(b.capT), '#ff3df2'];
+    case 'robbing':
+      return ['RAPINALI TUTTI! ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), '#ffd21f'];
+    case 'truce':
+      return ['TREGUA ' + shortT(truceT), '#c6ff3a'];
     case 'dead':
       return ['MORTO', '#6a5f80'];
   }
@@ -6028,6 +6754,10 @@ function statusShort(b) {
       ];
     case 'captured':
       return ['RAP ' + shortT(b.capT), '#ff3df2'];
+    case 'robbing':
+      return ['RAP ' + (b.rob ? b.rob.k + '/' + b.rob.seq.length : ''), '#ffd21f'];
+    case 'truce':
+      return ['TREG ' + shortT(truceT), '#c6ff3a'];
     case 'dead':
       return ['MORTO', '#6a5f80'];
   }
@@ -6068,6 +6798,7 @@ function drawTopBar() {
     txt('+' + 40 * bonds.length + '$ ' + fmt(bondT), 470, 18, '#ffd27a');
   }
   if (radarOn) txt('RADAR', 470, 30, '#ffe03c');
+  else if (advOn) txt('RADAR+', 470, 30, '#ff8a1f');
 }
 // azione contestuale vicino al giocatore: [tasto, testo]
 function hudPrompt(p) {
@@ -6077,6 +6808,7 @@ function hudPrompt(p) {
   }
   const s = nearShop(b);
   if (s && !p.inCar) {
+    if (shopOff(s)) return [null, s.name + ' FUORI USO ' + fmtL(s.offT)];
     if (mission && mission.carrier < 0 && s.i === mission.from)
       return [K('use'), 'PRENDI IL PACCO (' + mission.pay + '$)'];
     if (mission && mission.carrier === p.i && s.i === mission.to) return [K('use'), 'CONSEGNA IL PACCO'];
@@ -6224,6 +6956,8 @@ function drawHUD() {
     }
   }
   if (capE) needle(Math.atan2(capE.y - pb.y, capE.x - pb.x), '#ff3df2', 14);
+  const gold = enemies.find(e => e.kind === 'gold');
+  if (gold) needle(Math.atan2(gold.y - pb.y, gold.x - pb.x), XK.gold.c, 16);
   if (ne) {
     needle(Math.atan2(ne.y - pb.y, ne.x - pb.x), ACID, 19);
     ctx.fillStyle = '#fff';
@@ -6275,6 +7009,14 @@ function drawHUD() {
       my2 += 9;
     }
   }
+  if (advOn) {
+    const r = radarPos(pb);
+    if (r) {
+      needle(Math.atan2(r.y - pb.y, r.x - pb.x), '#ff8a1f', 17);
+      txt('RADAR: ' + r.n + ' ' + Math.round(dist(r.x, r.y, pb.x, pb.y) / 8) + 'M', VW - 4, my2, '#ff8a1f', 1, 'right');
+    } else txt('RADAR: OBIETTIVO PERSO (' + K('radar') + ')', VW - 4, my2, '#7a6f99', 1, 'right');
+    my2 += 9;
+  }
   // minimappa
   const mx = 4,
     my = VH - 108,
@@ -6305,6 +7047,11 @@ function drawHUD() {
   mark(garage.cx, garage.cy, blink(2) ? '#ff3df2' : '#ffffff', 4);
   for (const b of team) if (b.i !== active && AVAIL(b.status)) mark(b.x, b.y, b.ui, 2);
   if (capE && blink(3)) mark(capE.x, capE.y, '#ff3df2', 3);
+  for (const e of enemies) if (e.kind) mark(e.x, e.y, XK[e.kind].c, 3, e.kind !== 'gold');
+  if (advOn && blink(3)) {
+    const r = radarPos(pb);
+    if (r) mark(r.x, r.y, '#ff8a1f', 4);
+  }
   mark(pb.x, pb.y, '#ffffff', 3);
   txt('MAPPA (' + K('map') + ')', mx + 4, my + 4, '#3cf2ff');
   drawRoster();
@@ -6322,6 +7069,33 @@ function drawHUD() {
     strip('XENO SOTTO 3: ' + fmtL(lowT) + ' / 30:00 PER VINCERE', AX, ay, '#5cff7a');
     ay += 12;
   }
+  if (truceOn()) {
+    strip('TREGUA DI NYX ' + fmt(truceT) + ' - NESSUNO ATTACCA', AX, ay, '#c6ff3a');
+    ay += 12;
+  }
+  for (const e of enemies) {
+    if (e.kind === 'gold') {
+      const s = e.tgt >= 0 ? shops[e.tgt] : null;
+      if (s)
+        strip(
+          e.siegeT > 0
+            ? 'XENO GOLD ASSEDIA ' + s.name + ': CADE TRA ' + fmt(SIEGE_T - e.siegeT)
+            : 'XENO GOLD VERSO ' + s.name,
+          AX,
+          ay,
+          blink(2) ? XK.gold.c : '#ffffff',
+        );
+      ay += 12;
+    } else if (e.kind === 'silver') {
+      strip('XENO SILVER: DIVENTA GOLD TRA ' + fmt(15 * 60 - e.spT), AX, ay, XK.silver.c);
+      ay += 12;
+    }
+  }
+  const nr = enemies.filter(e => e.kind === 'red').length;
+  if (nr) {
+    strip('XENO ROSSI VERSO LA RIMESSA: ' + nr + '/3', AX, ay, XK.red.c);
+    ay += 12;
+  }
   if (p.bat < 15 && p.bat > 0 && blink(2)) {
     strip('BATTERIA BASSA', AX, ay, '#ff4d6d');
     ay += 12;
@@ -6329,7 +7103,12 @@ function drawHUD() {
   if (nightE() < 40) {
     strip('GUIDA ' + KDRIVE() + ' - ATTACCO ' + K('attack'), AX, ay, '#c9c2e6');
     ay += 12;
-    strip(K('mount') + ' SCENDI - ' + K('use') + ' AZIONE - ' + K('switch') + ' CAMBIA BIKER', AX, ay, '#c9c2e6');
+    strip(
+      K('mount') + ' SCENDI - ' + K('use') + ' AZIONE - ' + K('switch') + ' CAMBIA BIKER (+SHIFT: RIENTRA)',
+      AX,
+      ay,
+      '#c9c2e6',
+    );
     ay += 12;
     strip(K('pause') + ' PAUSA E COMANDI - ' + K('map') + ' MAPPA', AX, ay, '#7a6f99');
   }
@@ -6425,6 +7204,17 @@ function drawBigMap() {
     txt('PACCO', a, b2 - 11, '#ffe03c', 1, 'center');
   }
   for (const c of police) dot(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : '#2b6bff', 3);
+  for (const e of enemies)
+    if (e.kind) {
+      dot(e.x, e.y, XK[e.kind].c, 5);
+      const [a, b2] = P(e.x, e.y);
+      txt(XK[e.kind].name, a, b2 - 11, XK[e.kind].c, 1, 'center');
+    }
+  for (const s of shops)
+    if (shopOff(s)) {
+      const [a, b2] = P(s.x, s.y);
+      txt('FUORI USO', a, b2 + 13, '#ffd21f', 1, 'center');
+    }
   for (const t of team) {
     if (t.status === 'captured') {
       const e = enemies.find(e => e.id === t.captor);
@@ -6730,8 +7520,20 @@ function drawPause() {
     ['MISSIONI: OGNI 15 MIN UN PACCO DA CONSEGNARE - 100$ (+50 OLTRE 75% MAPPA, +50 OLTRE 100%)', '#ffe03c'],
     ["UCCIDI I 2 AGENTI: RUBA L'AUTO (" + K('use') + ') E PORTALA IN RIMESSA = 200-400$', '#9fd4ff'],
     ['RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA', '#7a6f99'],
+    ['SHIFT+' + K('switch') + ' (PAD L3): CAMBIA BIKER E FAI RIENTRARE IN RIMESSA QUELLO LASCIATO', '#c9c2e6'],
+    [
+      'AKIRA AL CENTRO NASA: RADAR AVANZATO 10000$ PER IL TEAM - ' + K('radar') + ' X3 = SCEGLI UN SOLO OBIETTIVO',
+      '#ff8a1f',
+    ],
+    [
+      'MELANIE AL COMMISSARIATO: LISTA RABBIA E RAPINALI TUTTI! (+2000$, RABBIA +1, VITA 1, RISCHIO ARRESTO)',
+      '#ffd21f',
+    ],
+    ['NOVA AL CENTRO ALIENI: NYX PROCLAMA LA TREGUA 15 MIN 5000$ (OGNI ORA) - XENO FERMI A 15', '#c6ff3a'],
+    ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
+    ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];
-  L.forEach((l, i) => txt(l[0], VW / 2, 40 + i * 14, l[1], 1, 'center'));
+  L.forEach((l, i) => txt(l[0], VW / 2, 34 + i * 11, l[1], 1, 'center'));
   txt(
     K('pause') +
       ' RIPRENDI   -   ' +
@@ -7038,6 +7840,7 @@ function frame(t) {
     if (state === 'title') drawTitle(rdt);
   } else if (state === 'play' || state === 'wait') {
     if (gunMenu) gunInput();
+    else if (listMenu) listInput();
     else if (paused) {
       if (take('pause') || mhit('back')) paused = false;
       else if (take('options') || mhit('opts')) optMenu = { sel: 0, sub: null };
@@ -7045,7 +7848,7 @@ function frame(t) {
       if (take('map') || mhit('back')) mapOpen = false;
     } else if (take('map')) mapOpen = true;
     else if (state === 'play' && take('pause')) paused = true;
-    frozen = paused || mapOpen || !!gunMenu || !!optMenu;
+    frozen = paused || mapOpen || !!gunMenu || !!listMenu || !!optMenu;
     if (!frozen) {
       if (hitStop > 0) hitStop = Math.max(0, hitStop - rdt);
       else {
@@ -7079,6 +7882,7 @@ function frame(t) {
       drawHUD();
       if (optMenu) drawOptions();
       else if (gunMenu) drawGunMenu();
+      else if (listMenu) drawListMenu();
       else if (mapOpen) drawBigMap();
       else if (paused) drawPause();
     } else if (state === 'wait') {

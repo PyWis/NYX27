@@ -113,6 +113,7 @@ addEventListener('keydown', e => {
     return;
   } // dentro l'evento: il browser lo consente
   if (!e.repeat) pressed.add(e.code);
+  if (!e.repeat && e.shiftKey && act === 'switch') pressed.add('ShiftSwitch'); // SHIFT + cambia biker
   keys[e.code] = true;
 });
 addEventListener('keyup', e => {
@@ -154,6 +155,7 @@ const PAD_BTN = {
   4: 'weapon',
   5: 'switch',
   8: 'map',
+  10: 'switchHome', // L3: cambia biker e fai rientrare quello lasciato
   9: 'pause',
   12: 'med',
   13: 'deliver',
@@ -381,6 +383,7 @@ const PADN_X = {
   nitro: 'Y',
   weapon: 'LB',
   switch: 'RB',
+  switchHome: 'L3',
   map: 'SELECT',
   pause: 'START',
   options: 'SELECT',

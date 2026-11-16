@@ -97,6 +97,31 @@ Zephyr, Atlas, Caspian, Vesper, Indigo, Nova e due nuovi:
 In armeria due biker qualsiasi, tranne i leader Zephyr e Vesper, possono allenarsi insieme:
 +2 danni ad armi e pugni.
 
+## Poteri speciali
+
+- **Tutti i biker:** **Shift + Tab** (gamepad: L3) cambia biker e fa rientrare in rimessa quello lasciato,
+  invece di farlo restare fermo dov'è. Il viaggio consuma la batteria: se finisce, il biker si ferma a ricaricare.
+- **Akira al centro NASA:** può comprare solo il **radar avanzato** (10000$, vale per tutto il team).
+  **V** ora ha tre stati: radar negozi → radar avanzato → spento. Il radar avanzato apre una lista e segue
+  un solo obiettivo: uno Xeno, la missione pacco, un edificio comune (il più vicino) o un edificio unico.
+- **Melanie al commissariato:** vede la **lista della rabbia** dei negozi e può avviare la missione automatica
+  **RAPINALI TUTTI!**: visita da sola tutti i negozi (intanto non si può giocare con lei). Al rientro +2000$,
+  rabbia +1 in tutti i negozi, Melanie a 1 di vita e arresto (1 ora) con probabilità 20% per ogni negozio con rabbia
+  sopra 3 (100% = arresto sicuro).
+- **Nova al centro alieni:** diventa Nyx e proclama una **tregua** di 15 minuti (5000$, una volta ogni ora):
+  nessuno attacca nessuno. Intanto Nova torna Nova con 1 di vita, resta al centro alieni e non è giocabile;
+  se gli Xeno sono 15 o più non ne arrivano altri.
+
+## Xeno speciali
+
+- **Xeno Rosso** (dopo 30 minuti, 1 rinforzo su 10): vita 40, va alla rimessa e non se ne allontana più di 200 m.
+  Se 3 Xeno Rossi si riuniscono davanti alla rimessa si fondono in uno **Xeno Silver** che rapisce 2 biker in
+  rimessa: 10 minuti per abbatterlo e liberarli.
+- **Xeno Silver** (dopo 90 minuti, 1 rinforzo su 30): vita 90, velocità x1.5, libero di girare per la città.
+- **Xeno Gold:** uno Silver che resta in città 15 minuti diventa Gold (velocità x2.5, ignora la tregua) e assedia
+  l'edificio unico più vicino. Dopo 30 minuti di assedio l'edificio è fuori uso per 1 ora e il Gold passa al
+  successivo; la chiesa è sempre l'ultima. Se cade anche la chiesa è game over.
+
 ## Struttura del codice
 
 | File | Contenuto |
@@ -109,6 +134,7 @@ In armeria due biker qualsiasi, tranne i leader Zephyr e Vesper, possono allenar
 | `js/input.js` | tastiera rimappabile, gamepad, impostazioni |
 | `js/game.js` | stato, salvataggio, squadra, negozi (tabella dati), aggiornamento |
 | `js/ai.js` | Xeno e polizia |
+| `js/special.js` | Xeno Rosso/Silver/Gold, tregua, RAPINALI TUTTI!, radar avanzato |
 | `js/render.js` | mondo, edifici 3D, luci notturne, meteo, segni a terra |
 | `js/hud.js` | HUD, menu, titolo, opzioni |
 | `js/main.js` | loop a timestep fisso |
