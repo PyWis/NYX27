@@ -733,6 +733,7 @@ function switchBiker(home) {
   const old = team[active];
   park(old);
   if (home) sendHome(old);
+  else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
   activate(n);
   sfx('switch');
   msg(team[n].name + ' IN SELLA', team[n].ui);
@@ -996,6 +997,12 @@ function nearFreeCar(b) {
   for (const c of police) if (c.mode === 'abandoned' && dist(c.x, c.y, b.x, b.y) < 20) return c;
   return null;
 }
+// matrimonio: Zephyr lasciato in chiesa aspetta Vesper e non torna da solo in rimessa
+function zephyrWaits(b) {
+  if (wedded || b.i !== 0 || b.status !== 'idle' || team[3].status === 'dead') return false;
+  const ch = shops.find(s => s.type === 'church');
+  return !!ch && dist(b.x, b.y, ch.x, ch.y) < 90;
+}
 const nearIdle = (i, s) => team[i] && team[i].status === 'idle' && dist(team[i].x, team[i].y, s.x, s.y) < 90;
 // ---------- negozi ed edifici speciali: tabella dati {hint, use} ----------
 // hint(p,s) -> testo dell'azione; se inizia con '!' e' solo un avviso (senza tasto davanti)
@@ -1078,6 +1085,8 @@ const SHOP_ACT = {
   church: {
     hint(p, s) {
       if (p && p.i === 3 && !wedded && nearIdle(0, s)) return 'MATRIMONIO CON ZEPHYR 10000$';
+      if (churchCD > 0 && p && !wedded && p.i === 3) return '!MATRIMONIO: PRIMA LASCIA ZEPHYR QUI';
+      if (churchCD > 0 && p && !wedded && p.i === 0) return '!MATRIMONIO: LASCIA QUI ZEPHYR E VIENI CON VESPER';
       return churchCD > 0 ? '!TORNA TRA ' + fmtL(churchCD) : 'FERMA GLI XENO 10 MIN';
     },
     use(p, s) {
@@ -1105,7 +1114,9 @@ const SHOP_ACT = {
         msg('ZEPHYR DEVE ARRIVARE IN CHIESA PRIMA DI VESPER', '#ff6ec7');
         return;
       }
-      if (churchCD > 0) msg('LA CHIESA TI ASCOLTERA TRA ' + fmtL(churchCD), '#ffe03c');
+      if (churchCD > 0 && !wedded && (p.i === 0 || p.i === 3))
+        msg('MATRIMONIO: ZEPHYR DEVE ASPETTARE IN CHIESA (' + K('switch') + ') E POI ARRIVA VESPER', '#ff6ec7');
+      else if (churchCD > 0) msg('LA CHIESA TI ASCOLTERA TRA ' + fmtL(churchCD), '#ffe03c');
       else {
         noSpawnT = 600;
         churchCD = 3600;
@@ -1822,7 +1833,7 @@ function updateMate(b, dt) {
       break;
     case 'idle':
       charge(b, dt, true);
-      b.waitT -= dt;
+      if (!zephyrWaits(b)) b.waitT -= dt;
       if (b.waitT <= 0) {
         b.chkT -= dt;
         if (b.chkT <= 0) {
