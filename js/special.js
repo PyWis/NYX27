@@ -444,7 +444,7 @@ function drawAngerList(x, y) {
   });
   const rk = arrestRisk();
   txt(
-    'MISSIONE AUTOMATICA: MELANIE VISITA TUTTI I NEGOZI (NON GIOCABILE) - RIENTRO +' + ROB_PAY + '$',
+    'MELANIE VISITA DA SOLA TUTTI I NEGOZI (NON GIOCABILE): +' + ROB_PAY + '$',
     VW / 2,
     y + half * 10 + 6,
     '#ffd21f',
@@ -452,7 +452,7 @@ function drawAngerList(x, y) {
     'center',
   );
   txt(
-    'POI: RABBIA +1 OVUNQUE, MELANIE A 1 DI VITA, ARRESTO ' + Math.round(rk * 100) + '% (20% PER NEGOZIO OLTRE 3)',
+    'RABBIA +1, VITA 1, ARRESTO ' + Math.round(rk * 100) + '% (20% PER NEGOZIO OLTRE 3)',
     VW / 2,
     y + half * 10 + 17,
     rk >= 1 ? '#ff4d6d' : '#c9c2e6',
@@ -489,7 +489,8 @@ function openRadarMenu() {
     .filter(e => !e.dead)
     .map(e => ({ e, d: dist(body(e).x, body(e).y, pb.x, pb.y) }))
     .sort((a, b) => a.d - b.d);
-  for (const o of xs.filter(o => o.e.kind)) pick(XK[o.e.kind].name + m(o.d), XK[o.e.kind].c, { k: 'xeno', id: o.e.id });
+  // al massimo 4 Xeno speciali: la lista resta dentro lo schermo
+  for (const o of xs.filter(o => o.e.kind).slice(0, 4)) pick(XK[o.e.kind].name + m(o.d), XK[o.e.kind].c, { k: 'xeno', id: o.e.id });
   xs.filter(o => !o.e.kind)
     .slice(0, 3)
     .forEach((o, j) => pick('XENO ' + (j + 1) + m(o.d), ACID, { k: 'xeno', id: o.e.id }));
