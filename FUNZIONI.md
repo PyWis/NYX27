@@ -147,7 +147,7 @@ Ci si interagisce con **E**.
 
 | Edificio | Funzioni |
 |---|---|
-| **Chiesa** | Nessun nuovo Xeno per 10 minuti (ogni ora). Zephyr presente e poi Vesper: **matrimonio** (10000$, le loro moto vanno x1,2). Nova che ci arriva diventa **Nyx**. |
+| **Chiesa** | Nessun nuovo Xeno per 10 minuti (ogni ora). Zephyr presente e poi Vesper: **matrimonio** (10000$, le loro moto vanno x1,2). Zephyr lasciato in chiesa (Tab) aspetta Vesper senza tornare in rimessa; il matrimonio si fa anche mentre la chiesa è in attesa della prossima preghiera. Nova che ci arriva diventa **Nyx**. |
 | **Commissariato** | Cauzione 1000$ per liberare un arrestato. Auto della polizia rubata (vedi sopra). **Melanie:** lista della rabbia e RAPINALI TUTTI! |
 | **Centro NASA** | Scudo anti-Xeno 500$. **Akira:** solo radar avanzato 10000$. **Caspian:** notte veloce. |
 | **Ospedale** | Ricovero gratis, +10 vita al minuto, un biker alla volta. 3 farmaci donati da 2 biker diversi danno +25 vita massima a tutto il team (fino a 250). |

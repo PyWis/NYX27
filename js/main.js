@@ -95,6 +95,7 @@ function frame(t) {
     } else if (mapOpen) {
       if (take('map') || mhit('back')) mapOpen = false;
     } else if (take('map')) mapOpen = true;
+    else if (take('options')) optMenu = { sel: 0, sub: null };
     else if (state === 'play' && take('pause')) paused = true;
     frozen = paused || mapOpen || !!gunMenu || !!listMenu || !!optMenu;
     if (!frozen) {
