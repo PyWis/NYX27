@@ -358,7 +358,7 @@ const ROSTER = [
     visor: '#3cf2ff',
   },
   {
-    name: 'Indigo',
+    name: 'Sel',
     sex: 'DONNA',
     color: '#16121f',
     rim: '#8a6bff',
@@ -2999,15 +2999,10 @@ function boom(x, y) {
 const AVAIL = s => s === 'garage' || s === 'idle' || s === 'returning';
 const atGarage = b =>
   b.status === 'garage' || b.status === 'medbay' || (b.status === 'active' && inGarage(body(b).x, body(b).y));
-const speedOf = b =>
-  BASE *
-  b.spd *
-  (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) *
-  (b.nyx ? 2 : 1) *
-  (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
+const speedOf = b => BASE * b.spd * (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) * (b.nyx ? 2 : 1) * (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
 function setW(b) {
   b.wi = Math.min(b.wi || 0, Math.max(0, b.weapons.length - 1));
-  b.wpn = b.weapons.length ? ROSTER[b.weapons[b.wi]].wpn : null;
+  b.wpn = b.weapons.length ? wpnById(b.weapons[b.wi]) : null;
 }
 
 // ---------- clock: la notte parte sempre alle 18:00 e avanza solo giocando ----------
@@ -3123,6 +3118,7 @@ function resetRun() {
   radarOn = false;
   resetSpecial();
   resetStadium();
+  resetDark();
   clearDecals();
 }
 function newGame(start) {
@@ -3231,6 +3227,7 @@ function serialize() {
     superBat,
     stad,
     stadRuns,
+    dark: darkSave(),
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -3325,7 +3322,7 @@ function migrateSave(S) {
   if (S.v < 4) {
     S.trained = S.trained === true ? [1, 4] : [];
     S.v = 4;
-  } // v3: allenamento solo Atlas+Indigo, 6 biker
+  } // v3: allenamento solo Atlas+Sel, 6 biker
   // v4: la citta' generata dallo stesso seme e' cambiata (stadio, Central Park, Times Square)
   if (S.v < 5) {
     if (!S.meta.ended) titleMsg = 'NUOVA CITTA: IL VECCHIO SALVATAGGIO NON E COMPATIBILE';
@@ -3351,6 +3348,7 @@ function loadGame(S) {
     setW(team[i]);
   });
   active = S.active;
+  loadDark(S.dark);
   for (const d of S.enemies) {
     const e = addEnemy(d.t, d.x, d.y, d.hp, d.id);
     e.follow = !!d.follow;
@@ -3494,6 +3492,7 @@ function charge(b, dt, still) {
 }
 function heal(b, dt) {
   if (b.status === 'dead' || b.status === 'captured' || b.status === 'out' || b.status === 'hosp' || b.hp <= 0) return;
+  if (b.status === 'car' || crewed(b)) return; // sull'auto nera la vita e' comune
   if (b.medOn) {
     b.hp = Math.min(maxHP, b.hp + (25 / 60) * dt);
     if (b.hp >= maxHP) {
@@ -3553,18 +3552,20 @@ function nextAvail(from) {
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
     if (lock && !stad.three.includes(j)) continue;
-    if (AVAIL(team[j].status)) return j;
+    if (AVAIL(team[j].status) || team[j].status === 'car') return j;
   }
   return -1;
 }
 function activate(n) {
   active = n;
-  const q = team[n];
+  const q = team[n],
+    wasCar = q.status === 'car';
   q.status = 'active';
   q.path = null;
   q.onFoot = false;
   q.v = 0;
   q.walkPath = null;
+  if (wasCar) takeWheel(q); // a bordo dell'auto nera: si mette al volante
 }
 function leaveActive() {
   if (team.every(b => b.status === 'dead')) return endGame(false, 'TUTTI I BIKER NYX SONO MORTI');
@@ -3602,7 +3603,14 @@ function switchBiker(home) {
   }
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
   const old = team[active];
-  park(old);
+  if (crewed(old) && inDark(old)) {
+    // auto nera: con TAB restano a bordo, con SHIFT+TAB scendono e vanno a piedi alle moto
+    if (home) {
+      emptyDark(false);
+      old.onFoot = false;
+      startFetch(old, old.fx, old.fy, true);
+    } else crewStay(old);
+  } else park(old);
   if (home && !inMission(old)) sendHome(old);
   else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
   activate(n);
@@ -3813,7 +3821,10 @@ function playerAttack(p) {
     if (n) hitStop = Math.max(hitStop, 0.1);
     return;
   }
-  if (w.k === 'gun') {
+  if (w.k === 'gun' && w.dual) {
+    shootPair(p.x + Math.cos(p.a) * 11, p.y + Math.sin(p.a) * 11, p.a, w, dmg, '#d8b8ff', 3);
+    sfx('rapid');
+  } else if (w.k === 'gun') {
     const x = p.x + Math.cos(p.a) * 11,
       y = p.y + Math.sin(p.a) * 11;
     bullets.push({
@@ -4183,7 +4194,8 @@ const SHOP_ACT = {
   guns: {
     hint(p, s) {
       const m = trainMate(p, s);
-      return m ? 'ALLENAMENTO CON ' + m.name : 'SECONDA ARMA 10000$';
+      if (m) return 'ALLENAMENTO CON ' + m.name;
+      return p && isCrew(p.i) ? dualHint(p) : 'SECONDA ARMA 10000$';
     },
     use(p, s) {
       const m = trainMate(p, s);
@@ -4194,6 +4206,7 @@ const SHOP_ACT = {
         msg(p.name + ' E ' + m.name + ' SI ALLENANO: +2 DANNI (ARMI E PUGNI)', '#3fd46b');
         return;
       }
+      if (isCrew(p.i)) return buyDual(p); // Atlas e Sel: solo le doppie pistole
       const max = ROSTER[p.i].wpn ? 2 : 1;
       const opts = WEAPON_OWNERS.filter(i => !p.weapons.includes(i));
       if (p.weapons.length >= max) msg('HAI GIA LA SECONDA ARMA', '#ffe03c');
@@ -4219,7 +4232,8 @@ function interact(p) {
   if (hit('use')) {
     const car = p.onFoot && !p.inCar ? nearFreeCar(b) : null;
     const s = nearShop(b);
-    if (car) enterCar(p, car);
+    if (p.onFoot && !p.inCar && nearDark(b)) useDark(p);
+    else if (car) enterCar(p, car);
     else if (s && !p.inCar && mission && mission.carrier < 0 && s.i === mission.from) {
       mission.carrier = p.i;
       sfx('buy');
@@ -4284,6 +4298,8 @@ function interact(p) {
             n++;
           }
         }
+      const nc = recallCrew(); // Atlas e Sel scendono dall'auto nera e vanno a piedi alle moto
+      n += nc;
       msg(n ? p.name + ' RICHIAMA TUTTI IN RIMESSA (' + n + ')' : 'NESSUN BIKER DA RICHIAMARE', p.ui);
       if (n) sfx('switch');
     }
@@ -4309,6 +4325,7 @@ function enterCar(p, c) {
 function exitCar(p, walk) {
   const c = p.inCar;
   if (!c) return;
+  if (c === dark) return emptyDark(walk);
   p.inCar = null;
   if (c.mode === 'driven') {
     c.mode = 'abandoned';
@@ -4408,6 +4425,7 @@ function driveCar(p, c, dt, thr, brk, st) {
   p.fx = c.x;
   p.fy = c.y;
   p.fa = c.a;
+  if (policeToMech(p, c)) return; // Atlas o Sel: l'auto diventa l'auto nera
   if (inGarage(c.x, c.y)) return deliverCar(p, c);
   const hq = shops.find(s => s.type === 'cop');
   if (hq && !shopOff(hq) && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
@@ -4426,7 +4444,8 @@ function updatePlayer(p, dt) {
     if (p.nitroT <= 0) msg('NITRO ESAURITO', '#7a6f99');
   }
   if (p.inCar) {
-    driveCar(p, p.inCar, dt, thr, brk, st);
+    if (p.inCar === dark) driveDark(p, dt, thr, brk, st, atk);
+    else driveCar(p, p.inCar, dt, thr, brk, st);
     charge(p, dt, true);
     return;
   }
@@ -5004,6 +5023,7 @@ function update(dt) {
     }
   }
   updateSpecial(dt);
+  updateDark(dt);
   compact(enemies, e => !e.dead);
   const fr = Math.pow(0.92, dt * 60);
   for (const q of parts) {
@@ -6806,6 +6826,406 @@ function stadiumHint(pb) {
 
 </script>
 <script>
+// ===== js/darkcar.js =====
+'use strict';
+// =====================================================================
+//  AUTO NERA DI ATLAS E SEL
+//  - doppie pistole: seconda arma speciale di Atlas e Sel (5000$ a testa, armeria)
+//  - Atlas o Sel portano un'auto della polizia rubata da un meccanico:
+//    carrozzeria e motore elettrico, dopo 1 ora l'auto nera e' pronta a Times Square
+//  - si sale a piedi, in due: la vita si somma, chi guida spara con l'auto (2 colpi),
+//    l'altro spara da solo con le doppie pistole
+//  - 8 minuti di autonomia; si ricarica in 8 minuti a Times Square, 1 ora altrove
+//  - Caspian puo' guidarla solo per riportarla a Times Square
+// =====================================================================
+const ATLAS = 1,
+  SEL = 4,
+  CREW = [ATLAS, SEL];
+const DUAL_ID = 99, // id della seconda arma speciale (non e' un indice del roster)
+  DUAL_COST = 5000;
+const DUAL_WPN = { k: 'gun', dual: true, cd: 0.4, dmg: 5, spd: 4.5 * BASE, rng: 14 * BL, label: 'DOPPIE PISTOLE' };
+const CAR_WPN = { k: 'gun', dual: true, cd: 0.5, dmg: 7, spd: 5 * BASE, rng: 30 * BL, label: 'CANNONI GEMELLI' };
+const DARK_BAT = 8 * 60, // 8 minuti di autonomia
+  DARK_BUILD = 3600, // 1 ora dal meccanico
+  DARK_FAST = 8 * 60, // ricarica completa a Times Square
+  DARK_SLOW = 3600; // ricarica completa altrove
+const wpnById = id => (id === DUAL_ID ? DUAL_WPN : ROSTER[id].wpn);
+const isCrew = i => CREW.includes(i);
+const mateOf = i => (i === ATLAS ? SEL : ATLAS);
+const hasDual = i => team[i] && team[i].weapons.includes(DUAL_ID);
+// dark: null | {phase:'build'|'ready', t, mech, x, y, a, v, bat, hp, crew:[i,i]|null, driver, cd, gcd}
+let dark = null,
+  darkWarnT = 0;
+function resetDark() {
+  dark = null;
+  darkWarnT = 0;
+}
+const darkReady = () => !!dark && dark.phase === 'ready';
+const inDark = b => !!b && !!b.inCar && b.inCar === dark;
+const crewed = b => darkReady() && !!dark.crew && dark.crew.includes(b.i);
+const squareMark = () => landmarks.find(m => m.name === 'TIMES SQUARE');
+function inSquare(x, y) {
+  const m = squareMark();
+  if (!m) return false;
+  const b = m.b;
+  return x >= b.x * CELL && x < (b.x + b.w) * CELL && y >= b.y * CELL && y < (b.y + b.h) * CELL;
+}
+function darkSprite() {
+  const c = mk(26, 14),
+    g = c.getContext('2d');
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  P(3, 0, 5, 2, '#000');
+  P(18, 0, 5, 2, '#000');
+  P(3, 12, 5, 2, '#000');
+  P(18, 12, 5, 2, '#000');
+  P(0, 2, 26, 10, '#050408');
+  P(1, 3, 24, 8, '#15121c');
+  P(2, 2, 20, 1, '#2a2440');
+  P(2, 11, 20, 1, '#2a2440');
+  P(9, 4, 8, 6, '#0a0810');
+  P(10, 5, 6, 4, '#2c2a48');
+  P(17, 4, 3, 6, '#3a3a6a');
+  P(1, 6, 6, 2, '#3fd46b'); // striscia di Atlas
+  P(19, 6, 6, 2, '#8a6bff'); // striscia di Sel
+  P(22, 1, 4, 1, '#c6ff3a'); // cannoni gemelli
+  P(22, 12, 4, 1, '#c6ff3a');
+  P(25, 3, 1, 2, '#e0f4ff');
+  P(25, 9, 1, 2, '#e0f4ff');
+  P(0, 3, 1, 2, '#ff2b4a');
+  P(0, 9, 1, 2, '#ff2b4a');
+  return c;
+}
+const darkSpr = darkSprite();
+
+// ---------- armeria: doppie pistole ----------
+function dualHint(p) {
+  if (hasDual(p.i)) return '!DOPPIE PISTOLE GIA TUE (' + K('weapon') + ' PER CAMBIARE)';
+  return 'DOPPIE PISTOLE ' + DUAL_COST + '$ (SOLO ATLAS E SEL)';
+}
+function buyDual(p) {
+  if (hasDual(p.i)) return msg('HAI GIA LE DOPPIE PISTOLE', '#ffe03c');
+  if (money < DUAL_COST) return msg('SERVONO ' + DUAL_COST + '$', '#ff4d6d');
+  money -= DUAL_COST;
+  p.weapons.push(DUAL_ID);
+  p.wi = p.weapons.length - 1;
+  setW(p);
+  sfx('cash');
+  msg(p.name + ' HA LE DOPPIE PISTOLE (' + K('weapon') + ' PER CAMBIARE)', p.ui);
+  if (hasDual(ATLAS) && hasDual(SEL) && !dark) msg("ORA PORTATE UN'AUTO DELLA POLIZIA DA UN MECCANICO", '#b48cff');
+}
+
+// ---------- officina: dall'auto della polizia all'auto nera ----------
+// chiamata da driveCar: true se l'auto della polizia e' stata consegnata al meccanico
+function policeToMech(p, c) {
+  if (!isCrew(p.i) || dark) return false;
+  const m = shops.find(s => s.type === 'mech' && !shopOff(s) && dist(c.x, c.y, s.x, s.y) < 36);
+  if (!m) return false;
+  if (!hasDual(ATLAS) || !hasDual(SEL)) {
+    if (darkWarnT <= 0) {
+      darkWarnT = 4;
+      msg('IL MECCANICO LAVORA SOLO SE ATLAS E SEL HANNO LE DOPPIE PISTOLE', '#ffb03c');
+    }
+    return false;
+  }
+  c.gone = true;
+  p.inCar = null;
+  p.onFoot = true;
+  p.fx = m.x;
+  p.fy = m.y + 4;
+  dark = { phase: 'build', t: DARK_BUILD, mech: m.i, x: 0, y: 0, a: 0, v: 0, bat: DARK_BAT, hp: 0 };
+  dark.crew = null;
+  dark.driver = -1;
+  dark.cd = 0;
+  dark.gcd = 0;
+  sfx('cash');
+  msg('IL MECCANICO MONTA CARROZZERIA E MOTORE ELETTRICO: PRONTA TRA 1 ORA', '#b48cff');
+  startWalk(p);
+  return true;
+}
+function darkDone() {
+  const m = squareMark();
+  dark.phase = 'ready';
+  dark.x = m ? m.x : garage.cx;
+  dark.y = m ? m.y : garage.cy;
+  dark.a = 0;
+  dark.v = 0;
+  dark.bat = DARK_BAT;
+  sfx('nitro');
+  msg("L'AUTO NERA E PRONTA: E PARCHEGGIATA A TIMES SQUARE", '#b48cff');
+  msg('ATLAS E SEL DEVONO ARRIVARCI A PIEDI', '#c9c2e6');
+}
+
+// ---------- salire e scendere ----------
+const nearDark = b => darkReady() && !dark.crew && dark.driver < 0 && dist(dark.x, dark.y, b.x, b.y) < 22;
+// il compagno deve aspettare vicino all'auto (TAB) oppure in rimessa se l'auto e' a Times Square
+function mateReady(p) {
+  const m = team[mateOf(p.i)];
+  if (!m || m.hp <= 0) return null;
+  if (m.status === 'idle' && dist(m.x, m.y, dark.x, dark.y) < 130) return m;
+  if (m.status === 'garage' && inSquare(dark.x, dark.y)) return m;
+  return null;
+}
+function darkHint(p) {
+  if (p.i === 2)
+    return inSquare(dark.x, dark.y) ? "!L'AUTO NERA E GIA A TIMES SQUARE" : 'RIPORTA L AUTO NERA A TIMES SQUARE';
+  if (!isCrew(p.i)) return "!L'AUTO NERA E SOLO DI ATLAS E SEL";
+  if (missionLock()) return '!NON DURANTE LA MISSIONE STADIO';
+  const m = mateReady(p);
+  return m
+    ? 'SALI IN DUE CON ' + m.name
+    : '!SERVE ' + ROSTER[mateOf(p.i)].name + ' (LASCIALO QUI CON ' + K('switch') + ')';
+}
+function useDark(p) {
+  const h = darkHint(p);
+  if (h[0] === '!') return msg(h.slice(1), '#b48cff');
+  p.inCar = dark;
+  p.walkPath = null;
+  dark.v = 0;
+  dark.driver = p.i;
+  if (p.i === 2) {
+    dark.crew = null;
+    sfx('mount');
+    return msg("CASPIAN GUIDA L'AUTO NERA: PORTALA A TIMES SQUARE", '#f2f2f2');
+  }
+  const m = mateReady(p);
+  dark.crew = [p.i, m.i];
+  dark.hp = p.hp + m.hp; // insieme la vita si somma
+  p.hp = dark.hp;
+  p.medOn = false;
+  m.medOn = false;
+  m.status = 'car';
+  m.path = null;
+  m.v = 0;
+  sfx('mount');
+  sfx('nitro');
+  msg(p.name + ' E ' + m.name + " SULL'AUTO NERA: VITA " + Math.ceil(dark.hp), '#b48cff');
+}
+// posizione libera accanto all'auto
+function darkSide(k) {
+  for (const a of [dark.a + Math.PI / 2, dark.a - Math.PI / 2, dark.a + Math.PI]) {
+    const x = dark.x + Math.cos(a) * (14 + k * 6),
+      y = dark.y + Math.sin(a) * (14 + k * 6);
+    if (!blocked(x, y, 3)) return { x, y };
+  }
+  return { x: dark.x, y: dark.y };
+}
+// scendono tutti: a ciascuno meta' della vita complessiva; chi non guida va a piedi alla sua moto
+function emptyDark(walk) {
+  const pool = crewHp();
+  const crew = dark.crew || [];
+  const drv = dark.driver >= 0 ? team[dark.driver] : null;
+  crew.forEach((i, k) => {
+    const b = team[i];
+    b.hp = Math.min(maxHP, Math.max(1, pool / 2));
+    if (b === drv) return;
+    const q = darkSide(k);
+    b.v = 0;
+    startFetch(b, q.x, q.y, true);
+    msg(b.name + ' TORNA A PIEDI ALLA MOTO', b.ui);
+  });
+  if (drv) {
+    const q = darkSide(0);
+    drv.inCar = null;
+    drv.onFoot = true;
+    drv.fx = q.x;
+    drv.fy = q.y;
+    drv.fa = dark.a;
+    if (walk) startWalk(drv);
+  }
+  dark.crew = null;
+  dark.driver = -1;
+  dark.hp = 0;
+  dark.v = 0;
+  if (crew.length) msg('ATLAS E SEL SCENDONO: VITA ' + Math.ceil(Math.max(1, pool / 2)) + ' A TESTA', '#b48cff');
+}
+// vita complessiva: chi guida la tiene in p.hp, a bordo fermi la tiene l'auto
+const crewHp = () => (dark.driver >= 0 && dark.crew ? team[dark.driver].hp : dark.hp);
+// TAB dall'auto: restano tutti e due a bordo, l'auto si ferma
+function crewStay(p) {
+  dark.hp = p.hp;
+  dark.driver = -1;
+  dark.v = 0;
+  p.inCar = null;
+  p.onFoot = false;
+  p.v = 0;
+  p.walkPath = null;
+  p.status = 'car';
+}
+// riprendere il comando di un biker a bordo: si mette al volante
+function takeWheel(q) {
+  q.inCar = dark;
+  q.onFoot = false;
+  dark.driver = q.i;
+  q.hp = dark.hp;
+}
+// richiamo dei leader: Atlas e Sel scendono e vanno a piedi alle loro moto
+function recallCrew() {
+  if (!darkReady() || !dark.crew || dark.driver >= 0) return 0;
+  const n = dark.crew.length;
+  emptyDark(false);
+  return n;
+}
+
+// ---------- guida e armi ----------
+function shootPair(x, y, a, w, dmg, col, off) {
+  for (const s of [-1, 1]) {
+    const bx = x + Math.cos(a + Math.PI / 2) * off * s,
+      by = y + Math.sin(a + Math.PI / 2) * off * s;
+    bullets.push({
+      x: bx,
+      y: by,
+      vx: Math.cos(a) * w.spd,
+      vy: Math.sin(a) * w.spd,
+      life: w.rng / w.spd,
+      dmg,
+      o: 'p',
+      c: col,
+    });
+    fx.push({ k: 'flash', x: bx, y: by, t: 0, dur: 0.08, r: 12, c: col });
+  }
+}
+function driveDark(p, dt, thr, brk, st, atk) {
+  const c = dark,
+    maxV = BASE * 1.5,
+    acc = maxV * 1.2,
+    can = c.bat > 0;
+  if (thr > 0 && can) {
+    const tg = maxV * thr;
+    c.v = c.v < tg ? Math.min(tg, c.v + acc * dt) : Math.max(tg, c.v - maxV * 0.6 * dt);
+  } else if (brk > 0 && c.v > 0) c.v = Math.max(0, c.v - maxV * 2.2 * brk * dt);
+  else if (brk > 0 && can) c.v = Math.max(-maxV * 0.3, c.v - acc * 0.5 * brk * dt);
+  else {
+    const f = maxV * 0.6 * dt;
+    c.v = Math.abs(c.v) <= f ? 0 : c.v - Math.sign(c.v) * f;
+  }
+  c.a += st * 2.8 * Math.min(1, 0.3 + Math.abs(c.v) / 60) * dt * (c.v < -1 ? -1 : 1);
+  if (moveCol(c, 'x', 'y', Math.cos(c.a) * c.v * dt, Math.sin(c.a) * c.v * dt, 6)) {
+    if (Math.abs(c.v) > 40) {
+      spark(c.x + Math.cos(c.a) * 12, c.y + Math.sin(c.a) * 12, '#b48cff', 6, 80);
+      sfx('bump');
+    }
+    c.v *= 0.5;
+  }
+  if (Math.abs(c.v) > 4) {
+    c.bat = Math.max(0, c.bat - dt);
+    if (c.bat <= 0 && !c.warn) {
+      c.warn = true;
+      msg('AUTO NERA SCARICA: A TIMES SQUARE SI RICARICA IN 8 MIN', '#ff4d6d');
+    }
+  }
+  if (c.bat > 0) c.warn = false;
+  p.fx = c.x;
+  p.fy = c.y;
+  p.fa = c.a;
+  c.cd -= dt;
+  // chi guida spara con i cannoni gemelli dell'auto (non Caspian)
+  if (c.crew && atk && c.cd <= 0) {
+    c.cd = CAR_WPN.cd;
+    shootPair(c.x + Math.cos(c.a) * 13, c.y + Math.sin(c.a) * 13, c.a, CAR_WPN, CAR_WPN.dmg, '#c6ff3a', 5);
+    sfx('shoot');
+  }
+  // Caspian: arrivato a Times Square la lascia li' e torna a piedi alla sua moto
+  if (!c.crew && p.i === 2 && inSquare(c.x, c.y)) {
+    c.v = 0;
+    emptyDark(true);
+    msg('AUTO NERA A TIMES SQUARE: CASPIAN TORNA ALLA MOTO E POI IN RIMESSA', '#f2f2f2');
+    return;
+  }
+  if (hit('mount')) emptyDark(true);
+}
+// il compagno a bordo spara da solo con le doppie pistole allo Xeno piu' vicino
+function gunnerFire(dt) {
+  dark.gcd -= dt;
+  if (dark.gcd > 0 || !dark.crew) return;
+  const g = team[dark.crew.find(i => i !== dark.driver)];
+  if (!g) return;
+  let best = null,
+    bd = DUAL_WPN.rng * 0.9;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const q = body(e),
+      d = dist(q.x, q.y, dark.x, dark.y);
+    if (d < bd && los(dark.x, dark.y, q.x, q.y)) {
+      bd = d;
+      best = q;
+    }
+  }
+  if (!best) return;
+  dark.gcd = DUAL_WPN.cd;
+  const a = Math.atan2(best.y - dark.y, best.x - dark.x) + (R() - 0.5) * 0.12;
+  shootPair(dark.x, dark.y, a, DUAL_WPN, DUAL_WPN.dmg + dmgBonus(g), '#d8b8ff', 3);
+  sfx('rapid');
+}
+
+// ---------- aggiornamento (chiamato da update) ----------
+function updateDark(dt) {
+  darkWarnT -= dt;
+  if (!dark) return;
+  if (dark.phase === 'build') {
+    dark.t -= dt;
+    if (dark.t <= 0) darkDone();
+    return;
+  }
+  const driving = dark.driver >= 0 && dark.driver === active && state === 'play';
+  if (driving && dark.crew) gunnerFire(dt);
+  // ferma si ricarica: 8 minuti a Times Square, 1 ora altrove
+  if (Math.abs(dark.v) < 4 && dark.bat < DARK_BAT) {
+    const full = inSquare(dark.x, dark.y) ? DARK_FAST : DARK_SLOW;
+    const was = dark.bat;
+    dark.bat = Math.min(DARK_BAT, dark.bat + (DARK_BAT / full) * dt);
+    if (was < DARK_BAT && dark.bat >= DARK_BAT && !driving) msg('AUTO NERA RICARICATA', '#b48cff');
+  }
+}
+
+// ---------- disegno ----------
+function drawDark(vis) {
+  if (!dark) return;
+  if (dark.phase === 'build') {
+    const m = shops[dark.mech];
+    if (m && vis(m.x, m.y)) lab('AUTO NERA ' + fmtL(dark.t), m.x, m.y - 40, '#b48cff');
+    return;
+  }
+  if (!vis(dark.x, dark.y)) return;
+  drawVeh(darkSpr, dark.x, dark.y, dark.a);
+  if (dark.driver >= 0) return;
+  if (dark.crew) lab('ATLAS E SEL A BORDO', dark.x, dark.y - 16, '#b48cff');
+  else if (pAvail && dist(dark.x, dark.y, pBody.x, pBody.y) < 90) {
+    const p = team[active];
+    lab(p.onFoot && !p.inCar ? 'AUTO NERA' : 'AUTO NERA: VIENI A PIEDI', dark.x, dark.y - 16, '#b48cff');
+  }
+  if (dark.bat < DARK_BAT)
+    lab('CARICA ' + Math.floor((dark.bat / DARK_BAT) * 100) + '%', dark.x, dark.y + 10, '#ffe03c');
+}
+
+// ---------- salvataggio ----------
+function darkSave() {
+  return dark ? { ...dark } : null;
+}
+function loadDark(d) {
+  dark = d ? { ...d } : null;
+  if (!dark) return;
+  dark.cd = 0;
+  dark.gcd = 0;
+  dark.crew = dark.crew || null;
+  if (dark.driver == null) dark.driver = -1;
+  if (dark.driver >= 0) {
+    const b = team[dark.driver];
+    if (b && b.status === 'active') {
+      b.inCar = dark;
+      b.onFoot = false;
+    } else if (dark.crew) {
+      dark.hp = b ? b.hp : dark.hp;
+      if (b) b.status = 'car';
+      dark.driver = -1;
+    } else dark.driver = -1;
+  }
+}
+
+</script>
+<script>
 // ===== js/render.js =====
 'use strict';
 // =====================================================================
@@ -7284,8 +7704,7 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
   // fari dello stadio e maxischermi di Times Square
   const near = (x, y, m) => x > X0 - m && x < X1 + m && y > Y0 - m && y < Y1 + m;
   for (const l of stadium.lights) if (near(l.x, l.y, 160)) lglow(l.x, l.y, 170, '#fff3d0', stad ? 0.75 : 0.5);
-  if (stad && near(stadium.cx, stadium.cy, 200))
-    lglow(stadium.cx, stadium.cy, 190, '#ff2b4a', blink(2) ? 0.35 : 0.15);
+  if (stad && near(stadium.cx, stadium.cy, 200)) lglow(stadium.cx, stadium.cy, 190, '#ff2b4a', blink(2) ? 0.35 : 0.15);
   for (const m of landmarks)
     if (m.name === 'TIMES SQUARE' && near(m.x, m.y, 260)) {
       const b = m.b;
@@ -7318,6 +7737,10 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
       lglow(c.x, c.y, big ? 40 : 26, '#ff2b4a', on ? 0.7 : 0.2);
       lglow(c.x, c.y, big ? 40 : 26, '#2b6bff', on ? 0.2 : 0.7);
     }
+  }
+  if (darkReady() && vis(dark.x, dark.y)) {
+    if (dark.driver >= 0) car(dark);
+    lglow(dark.x, dark.y, 22, '#8a6bff', 0.45);
   }
   if (amb && vis(amb.x, amb.y)) {
     car(amb);
@@ -7420,7 +7843,8 @@ function drawWorld(cx, cy, dt) {
       b.status === 'amb' ||
       b.status === 'medbay' ||
       b.status === 'fetch' ||
-      b.status === 'waitamb';
+      b.status === 'waitamb' ||
+      b.status === 'car';
     drawVeh(empty ? b.sprE : b.spr, b.x, b.y, b.a);
     if (b.status === 'idle') {
       lab(b.name, b.x, b.y - 18, b.ui);
@@ -7448,7 +7872,9 @@ function drawWorld(cx, cy, dt) {
                   ? 'IN CURA'
                   : b.status === 'fetch'
                     ? 'ASPETTA'
-                    : b.outR,
+                    : b.status === 'car'
+                      ? 'AUTO NERA'
+                      : b.outR,
         b.x,
         b.y + 9,
         '#ff4d6d',
@@ -7535,6 +7961,7 @@ function drawWorld(cx, cy, dt) {
         if (k.out && k.hp > 0 && vis(k.x, k.y))
           drawPerson(k.x, k.y, k.fa, '#1d2a6b', '#c68a5e', '#0e0e14', 0, k.walk, false);
   }
+  drawDark(vis);
   if (playing) {
     const p = team[active];
     if (p.inCar) {
@@ -7698,8 +8125,7 @@ function drawWorld(cx, cy, dt) {
       if (s.anger > 0 && d < 24) lab('RABBIA ' + s.anger, s.x, s.y + 10, '#ff4d6d');
     }
   });
-  for (const m of landmarks)
-    if (vis(m.x, m.y) || dist(m.x, m.y, cx, cy) < 360) lab(m.name, m.x, m.b.y * CELL + 4, m.c);
+  for (const m of landmarks) if (vis(m.x, m.y) || dist(m.x, m.y, cx, cy) < 360) lab(m.name, m.x, m.b.y * CELL + 4, m.c);
   if (playing) {
     const pb = body(team[active]);
     if (blink(4)) {
@@ -7803,9 +8229,11 @@ function statusTxt(b) {
   switch (b.status) {
     case 'active':
       return [
-        b.nyx ? 'NYX' : b.inCar ? 'AUTO POLIZIA' : b.onFoot ? 'A PIEDI' : 'IN GUIDA',
-        b.nyx ? '#ff3df2' : '#5cff7a',
+        b.nyx ? 'NYX' : inDark(b) ? 'AUTO NERA' : b.inCar ? 'AUTO POLIZIA' : b.onFoot ? 'A PIEDI' : 'IN GUIDA',
+        b.nyx ? '#ff3df2' : inDark(b) ? '#b48cff' : '#5cff7a',
       ];
+    case 'car':
+      return ["SULL'AUTO NERA", '#b48cff'];
     case 'garage':
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
@@ -7845,7 +8273,12 @@ function statusShort(b) {
   const pc = Math.floor((b.hp / maxHP) * 100) + '%';
   switch (b.status) {
     case 'active':
-      return [b.nyx ? 'NYX' : b.inCar ? 'AUTO POL' : b.onFoot ? 'A PIEDI' : 'IN GUIDA', b.nyx ? '#ff3df2' : '#5cff7a'];
+      return [
+        b.nyx ? 'NYX' : inDark(b) ? 'AUTO NERA' : b.inCar ? 'AUTO POL' : b.onFoot ? 'A PIEDI' : 'IN GUIDA',
+        b.nyx ? '#ff3df2' : inDark(b) ? '#b48cff' : '#5cff7a',
+      ];
+    case 'car':
+      return ['AUTO NERA', '#b48cff'];
     case 'garage':
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
@@ -7866,9 +8299,14 @@ function statusShort(b) {
       return ['OSP ' + pc, '#ff4d6d'];
     case 'out':
       return [
-        ({ ARRESTATO: 'ARR ', FERITO: 'FER ', FUGGITO: 'FUGA ', ESAUSTA: 'KO ', OSTAGGIO: 'OST ', PRIGIONIERO: 'PRIG ' }[
-          b.outR
-        ] || 'OUT ') + shortT(b.outT),
+        ({
+          ARRESTATO: 'ARR ',
+          FERITO: 'FER ',
+          FUGGITO: 'FUGA ',
+          ESAUSTA: 'KO ',
+          OSTAGGIO: 'OST ',
+          PRIGIONIERO: 'PRIG ',
+        }[b.outR] || 'OUT ') + shortT(b.outT),
         b.outR === 'ARRESTATO' ? '#3a7bff' : '#ff4d6d',
       ];
     case 'captured':
@@ -7924,6 +8362,10 @@ function drawTopBar() {
 function hudPrompt(p) {
   const b = body(p);
   if (p.onFoot && !p.inCar) {
+    if (nearDark(b)) {
+      const h = darkHint(p);
+      return h[0] === '!' ? [null, h.slice(1)] : [K('use'), h];
+    }
     if (nearFreeCar(b)) return [K('use'), "RUBA L'AUTO"];
   }
   const s = nearShop(b);
@@ -7963,14 +8405,17 @@ function drawHUD() {
     1,
     'right',
   );
-  const hf = p.hp / maxHP;
+  const hmax = crewed(p) ? 2 * maxHP : maxHP, // sull'auto nera la vita di Atlas e Sel si somma
+    hf = Math.min(1, p.hp / hmax);
   icon('heart', 38, 26, '#ff6e8a');
   bar(48, 27, 118, 5, hf, hpCol(hf));
   txt(Math.ceil(p.hp) + '', 196, 26, '#ffffff', 1, 'right');
-  const lowB = p.bat < 20;
-  icon('bolt', 38, 36, '#3cf2ff');
-  bar(48, 37, 118, 5, p.bat / BAT_MAX, lowB && blink(4) ? '#ff4d6d' : '#3cf2ff');
-  txt(fmt(p.bat), 196, 36, lowB ? '#ff4d6d' : '#ffffff', 1, 'right');
+  const dk = inDark(p),
+    bat = dk ? dark.bat : p.bat,
+    lowB = bat < 20;
+  icon('bolt', 38, 36, dk ? '#b48cff' : '#3cf2ff');
+  bar(48, 37, 118, 5, bat / (dk ? DARK_BAT : BAT_MAX), lowB && blink(4) ? '#ff4d6d' : dk ? '#b48cff' : '#3cf2ff');
+  txt(fmt(bat), 196, 36, lowB ? '#ff4d6d' : '#ffffff', 1, 'right');
   const still = p.onFoot || Math.abs(p.v) < 4,
     gar = inGarage(p.x, p.y),
     per = gar ? (superBat ? 10 : 15) : 30;
@@ -7980,7 +8425,15 @@ function drawHUD() {
   if (p.medOn && blink(2)) txt('+', 26, 47, '#5cff7a');
   let line,
     lc = '#c9c2e6';
-  if (p.inCar) line = 'AUTO POLIZIA: RIMESSA O COMMISSARIATO';
+  if (dk)
+    line = dark.crew
+      ? 'AUTO NERA: 2 COLPI ' + CAR_WPN.dmg + ' DANNI - ' + K('mount') + ' SCENDI'
+      : 'AUTO NERA: RIPORTALA A TIMES SQUARE';
+  else if (p.inCar)
+    line =
+      isCrew(p.i) && !dark
+        ? 'AUTO POLIZIA: RIMESSA, COMMISSARIATO O MECCANICO'
+        : 'AUTO POLIZIA: RIMESSA O COMMISSARIATO';
   else if (p.onFoot)
     line = p.walkPath ? 'TORNA ALLA MOTO...' : 'A PIEDI - PUGNI ' + (p.punch.dmg + dmgBonus(p)) + ' DANNI';
   else if (p.bat <= 0) {
@@ -8011,6 +8464,9 @@ function drawHUD() {
   if (p.nyx) {
     sp = 'NYX: -10 VITA/MIN - FEDELI ' + enemies.filter(e => e.follow).length;
     sc = '#ff3df2';
+  } else if (dk && dark.crew) {
+    sp = ROSTER[mateOf(p.i)].name + ' SPARA CON LE DOPPIE PISTOLE';
+    sc = '#d8b8ff';
   } else if (p.wpn && p.wpn.k === 'laser' && !p.onFoot && !p.inCar) {
     if (p.lchg > 0) {
       txt('CARICA', 38, 68, '#ff8a1f');
@@ -8168,6 +8624,7 @@ function drawHUD() {
   }
   for (const c of police)
     mark(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : blink(6) ? '#ff2b4a' : '#2b6bff', 2, false);
+  if (darkReady()) mark(dark.x, dark.y, '#b48cff', 3);
   mark(garage.cx, garage.cy, blink(2) ? '#ff3df2' : '#ffffff', 4);
   if (stad) mark(stadium.cx, stadium.cy, blink(3) ? '#ff2b4a' : '#ff6ec7', 4);
   for (const b of team) if (b.i !== active && AVAIL(b.status)) mark(b.x, b.y, b.ui, 2);
@@ -8209,13 +8666,20 @@ function drawHUD() {
             blink(2) ? '#ff4d6d' : '#ffffff',
           ]
         : stad.phase === 'enter'
-          ? ['GLI XENO ENTRANO: ' + enemies.filter(e => e.stad && e.sm === 'in').length + '/12 DENTRO - ASPETTA', '#ff9de6']
+          ? [
+              'GLI XENO ENTRANO: ' + enemies.filter(e => e.stad && e.sm === 'in').length + '/12 DENTRO - ASPETTA',
+              '#ff9de6',
+            ]
           : stad.phase === 'fight'
-          ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
-          : [
-              'OSTAGGI NELLO STADIO: NOVA ENTRO ' + fmt(stad.t) + ' (' + Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) + 'M)',
-              blink(2) ? '#ff6ec7' : '#ffffff',
-            ];
+            ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
+            : [
+                'OSTAGGI NELLO STADIO: NOVA ENTRO ' +
+                  fmt(stad.t) +
+                  ' (' +
+                  Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) +
+                  'M)',
+                blink(2) ? '#ff6ec7' : '#ffffff',
+              ];
     strip(t[0], AX, ay, t[1]);
     ay += 12;
   } else {
@@ -8330,7 +8794,7 @@ function drawRoster() {
       ctx.fillStyle = '#3fd46b';
       ctx.fillRect(x + 55, y + 3, 3, 3);
     }
-    bar(x + 7, y + 20, 54, 2, b.hp / maxHP, b.medOn ? '#b6ff7a' : '#5cff7a');
+    bar(x + 7, y + 20, 54, 2, Math.min(1, b.hp / maxHP), b.medOn ? '#b6ff7a' : '#5cff7a');
     bar(x + 7, y + 23, 54, 2, b.bat / BAT_MAX, '#3cf2ff');
   }
 }
@@ -8364,6 +8828,11 @@ function drawBigMap() {
     txt('PACCO', a, b2 - 11, '#ffe03c', 1, 'center');
   }
   for (const c of police) dot(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : '#2b6bff', 3);
+  if (darkReady()) {
+    dot(dark.x, dark.y, '#b48cff', 5);
+    const [a, b2] = P(dark.x, dark.y);
+    txt('AUTO NERA', a, b2 + 6, '#b48cff', 1, 'center');
+  }
   for (const e of enemies)
     if (e.kind) {
       dot(e.x, e.y, XK[e.kind].c, 5);
@@ -8698,7 +9167,10 @@ function drawPause() {
       'MELANIE AL COMMISSARIATO: LISTA RABBIA E RAPINALI TUTTI! (+2000$, RABBIA +1, VITA 1, RISCHIO ARRESTO)',
       '#ffd21f',
     ],
-    ['NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA', '#c6ff3a'],
+    [
+      'NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA',
+      '#c6ff3a',
+    ],
     ['MELANIE DAL MECCANICO A PIEDI: RUBA BATTERIE -50 VITA - TUTTI IN 30 MIN: BATTERIE 5 MIN, RIMESSA X3', '#ffd21f'],
     ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO DELLA CITTA ASSEDIANO LO STADIO', '#9fd4ff'],
     ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
