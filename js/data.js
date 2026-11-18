@@ -46,7 +46,7 @@ const ROSTER = [
     visor: '#3cf2ff',
   },
   {
-    name: 'Indigo',
+    name: 'Sel',
     sex: 'DONNA',
     color: '#16121f',
     rim: '#8a6bff',

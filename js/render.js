@@ -475,8 +475,7 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
   // fari dello stadio e maxischermi di Times Square
   const near = (x, y, m) => x > X0 - m && x < X1 + m && y > Y0 - m && y < Y1 + m;
   for (const l of stadium.lights) if (near(l.x, l.y, 160)) lglow(l.x, l.y, 170, '#fff3d0', stad ? 0.75 : 0.5);
-  if (stad && near(stadium.cx, stadium.cy, 200))
-    lglow(stadium.cx, stadium.cy, 190, '#ff2b4a', blink(2) ? 0.35 : 0.15);
+  if (stad && near(stadium.cx, stadium.cy, 200)) lglow(stadium.cx, stadium.cy, 190, '#ff2b4a', blink(2) ? 0.35 : 0.15);
   for (const m of landmarks)
     if (m.name === 'TIMES SQUARE' && near(m.x, m.y, 260)) {
       const b = m.b;
@@ -509,6 +508,10 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
       lglow(c.x, c.y, big ? 40 : 26, '#ff2b4a', on ? 0.7 : 0.2);
       lglow(c.x, c.y, big ? 40 : 26, '#2b6bff', on ? 0.2 : 0.7);
     }
+  }
+  if (darkReady() && vis(dark.x, dark.y)) {
+    if (dark.driver >= 0) car(dark);
+    lglow(dark.x, dark.y, 22, '#8a6bff', 0.45);
   }
   if (amb && vis(amb.x, amb.y)) {
     car(amb);
@@ -611,7 +614,8 @@ function drawWorld(cx, cy, dt) {
       b.status === 'amb' ||
       b.status === 'medbay' ||
       b.status === 'fetch' ||
-      b.status === 'waitamb';
+      b.status === 'waitamb' ||
+      b.status === 'car';
     drawVeh(empty ? b.sprE : b.spr, b.x, b.y, b.a);
     if (b.status === 'idle') {
       lab(b.name, b.x, b.y - 18, b.ui);
@@ -639,7 +643,9 @@ function drawWorld(cx, cy, dt) {
                   ? 'IN CURA'
                   : b.status === 'fetch'
                     ? 'ASPETTA'
-                    : b.outR,
+                    : b.status === 'car'
+                      ? 'AUTO NERA'
+                      : b.outR,
         b.x,
         b.y + 9,
         '#ff4d6d',
@@ -726,6 +732,7 @@ function drawWorld(cx, cy, dt) {
         if (k.out && k.hp > 0 && vis(k.x, k.y))
           drawPerson(k.x, k.y, k.fa, '#1d2a6b', '#c68a5e', '#0e0e14', 0, k.walk, false);
   }
+  drawDark(vis);
   if (playing) {
     const p = team[active];
     if (p.inCar) {
@@ -889,8 +896,7 @@ function drawWorld(cx, cy, dt) {
       if (s.anger > 0 && d < 24) lab('RABBIA ' + s.anger, s.x, s.y + 10, '#ff4d6d');
     }
   });
-  for (const m of landmarks)
-    if (vis(m.x, m.y) || dist(m.x, m.y, cx, cy) < 360) lab(m.name, m.x, m.b.y * CELL + 4, m.c);
+  for (const m of landmarks) if (vis(m.x, m.y) || dist(m.x, m.y, cx, cy) < 360) lab(m.name, m.x, m.b.y * CELL + 4, m.c);
   if (playing) {
     const pb = body(team[active]);
     if (blink(4)) {

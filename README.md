@@ -87,7 +87,7 @@ Nelle opzioni ci sono anche volumi, "riduci lampeggi", effetto CRT, scosse della
 
 ## Biker
 
-Zephyr, Atlas, Caspian, Vesper, Indigo, Nova e due nuovi:
+Zephyr, Atlas, Caspian, Vesper, Sel, Nova e due nuovi:
 
 - **Akira** (moto arancione): spada laser. Tieni premuto l'attacco, la moto si ferma,
   carica per 1 secondo e colpisce tutto intorno con un colpo mortale.
@@ -96,6 +96,10 @@ Zephyr, Atlas, Caspian, Vesper, Indigo, Nova e due nuovi:
 
 In armeria due biker qualsiasi che arrivano in coppia (anche Zephyr e Vesper) possono allenarsi insieme:
 +2 danni ad armi e pugni. Il matrimonio di Zephyr e Vesper in chiesa porta **tutte** le moto a x1,2.
+
+**Atlas e Sel** comprano in armeria le **doppie pistole** (5000$ a testa, si usano solo sull'auto) e, portando un'auto della polizia
+rubata da un meccanico, dopo un'ora ricevono l'**auto nera**: ci salgono in due, sommano la vita e combattono
+insieme (vedi `FUNZIONI.md`, §8).
 
 ## Poteri speciali
 

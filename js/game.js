@@ -162,12 +162,7 @@ function boom(x, y) {
 const AVAIL = s => s === 'garage' || s === 'idle' || s === 'returning';
 const atGarage = b =>
   b.status === 'garage' || b.status === 'medbay' || (b.status === 'active' && inGarage(body(b).x, body(b).y));
-const speedOf = b =>
-  BASE *
-  b.spd *
-  (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) *
-  (b.nyx ? 2 : 1) *
-  (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
+const speedOf = b => BASE * b.spd * (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) * (b.nyx ? 2 : 1) * (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
 function setW(b) {
   b.wi = Math.min(b.wi || 0, Math.max(0, b.weapons.length - 1));
   b.wpn = b.weapons.length ? ROSTER[b.weapons[b.wi]].wpn : null;
@@ -286,6 +281,7 @@ function resetRun() {
   radarOn = false;
   resetSpecial();
   resetStadium();
+  resetDark();
   clearDecals();
 }
 function newGame(start) {
@@ -394,6 +390,7 @@ function serialize() {
     superBat,
     stad,
     stadRuns,
+    dark: darkSave(),
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -416,6 +413,7 @@ function serialize() {
       weapons: b.weapons,
       wi: b.wi,
       tuned: b.tuned,
+      dual: !!b.dual,
       shield: b.shield,
       shieldT: b.shieldT,
       nyx: !!b.nyx,
@@ -488,7 +486,7 @@ function migrateSave(S) {
   if (S.v < 4) {
     S.trained = S.trained === true ? [1, 4] : [];
     S.v = 4;
-  } // v3: allenamento solo Atlas+Indigo, 6 biker
+  } // v3: allenamento solo Atlas+Sel, 6 biker
   // v4: la citta' generata dallo stesso seme e' cambiata (stadio, Central Park, Times Square)
   if (S.v < 5) {
     if (!S.meta.ended) titleMsg = 'NUOVA CITTA: IL VECCHIO SALVATAGGIO NON E COMPATIBILE';
@@ -511,9 +509,15 @@ function loadGame(S) {
   team = makeTeam();
   S.team.forEach((d, i) => {
     Object.assign(team[i], d);
+    // vecchi salvataggi: le doppie pistole erano un'arma della lista
+    if (d.weapons && d.weapons.includes(DUAL_ID)) {
+      team[i].weapons = d.weapons.filter(w => w !== DUAL_ID);
+      team[i].dual = true;
+    }
     setW(team[i]);
   });
   active = S.active;
+  loadDark(S.dark);
   for (const d of S.enemies) {
     const e = addEnemy(d.t, d.x, d.y, d.hp, d.id);
     e.follow = !!d.follow;
@@ -657,6 +661,7 @@ function charge(b, dt, still) {
 }
 function heal(b, dt) {
   if (b.status === 'dead' || b.status === 'captured' || b.status === 'out' || b.status === 'hosp' || b.hp <= 0) return;
+  if (b.status === 'car' || crewed(b)) return; // sull'auto nera la vita e' comune
   if (b.medOn) {
     b.hp = Math.min(maxHP, b.hp + (25 / 60) * dt);
     if (b.hp >= maxHP) {
@@ -716,18 +721,20 @@ function nextAvail(from) {
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
     if (lock && !stad.three.includes(j)) continue;
-    if (AVAIL(team[j].status)) return j;
+    if (AVAIL(team[j].status) || team[j].status === 'car') return j;
   }
   return -1;
 }
 function activate(n) {
   active = n;
-  const q = team[n];
+  const q = team[n],
+    wasCar = q.status === 'car';
   q.status = 'active';
   q.path = null;
   q.onFoot = false;
   q.v = 0;
   q.walkPath = null;
+  if (wasCar) takeWheel(q); // a bordo dell'auto nera: si mette al volante
 }
 function leaveActive() {
   if (team.every(b => b.status === 'dead')) return endGame(false, 'TUTTI I BIKER NYX SONO MORTI');
@@ -765,7 +772,14 @@ function switchBiker(home) {
   }
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
   const old = team[active];
-  park(old);
+  if (crewed(old) && inDark(old)) {
+    // auto nera: con TAB restano a bordo, con SHIFT+TAB scendono e vanno a piedi alle moto
+    if (home) {
+      emptyDark(false);
+      old.onFoot = false;
+      startFetch(old, old.fx, old.fy, true);
+    } else crewStay(old);
+  } else park(old);
   if (home && !inMission(old)) sendHome(old);
   else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
   activate(n);
@@ -1346,7 +1360,8 @@ const SHOP_ACT = {
   guns: {
     hint(p, s) {
       const m = trainMate(p, s);
-      return m ? 'ALLENAMENTO CON ' + m.name : 'SECONDA ARMA 10000$';
+      if (m) return 'ALLENAMENTO CON ' + m.name;
+      return p && isCrew(p.i) && dualTime() ? dualHint(p) : 'SECONDA ARMA 10000$';
     },
     use(p, s) {
       const m = trainMate(p, s);
@@ -1357,6 +1372,7 @@ const SHOP_ACT = {
         msg(p.name + ' E ' + m.name + ' SI ALLENANO: +2 DANNI (ARMI E PUGNI)', '#3fd46b');
         return;
       }
+      if (isCrew(p.i) && dualTime()) return buyDual(p); // Atlas e Sel: prima dell'auto nera solo le doppie pistole
       const max = ROSTER[p.i].wpn ? 2 : 1;
       const opts = WEAPON_OWNERS.filter(i => !p.weapons.includes(i));
       if (p.weapons.length >= max) msg('HAI GIA LA SECONDA ARMA', '#ffe03c');
@@ -1382,7 +1398,8 @@ function interact(p) {
   if (hit('use')) {
     const car = p.onFoot && !p.inCar ? nearFreeCar(b) : null;
     const s = nearShop(b);
-    if (car) enterCar(p, car);
+    if (p.onFoot && !p.inCar && nearDark(b)) useDark(p);
+    else if (car) enterCar(p, car);
     else if (s && !p.inCar && mission && mission.carrier < 0 && s.i === mission.from) {
       mission.carrier = p.i;
       sfx('buy');
@@ -1447,6 +1464,8 @@ function interact(p) {
             n++;
           }
         }
+      const nc = recallCrew(); // Atlas e Sel scendono dall'auto nera e vanno a piedi alle moto
+      n += nc;
       msg(n ? p.name + ' RICHIAMA TUTTI IN RIMESSA (' + n + ')' : 'NESSUN BIKER DA RICHIAMARE', p.ui);
       if (n) sfx('switch');
     }
@@ -1472,6 +1491,7 @@ function enterCar(p, c) {
 function exitCar(p, walk) {
   const c = p.inCar;
   if (!c) return;
+  if (c === dark) return emptyDark(walk);
   p.inCar = null;
   if (c.mode === 'driven') {
     c.mode = 'abandoned';
@@ -1571,6 +1591,7 @@ function driveCar(p, c, dt, thr, brk, st) {
   p.fx = c.x;
   p.fy = c.y;
   p.fa = c.a;
+  if (policeToMech(p, c)) return; // Atlas o Sel: l'auto diventa l'auto nera
   if (inGarage(c.x, c.y)) return deliverCar(p, c);
   const hq = shops.find(s => s.type === 'cop');
   if (hq && !shopOff(hq) && dist(c.x, c.y, hq.x, hq.y) < 36) return copHQ(p, c);
@@ -1589,7 +1610,8 @@ function updatePlayer(p, dt) {
     if (p.nitroT <= 0) msg('NITRO ESAURITO', '#7a6f99');
   }
   if (p.inCar) {
-    driveCar(p, p.inCar, dt, thr, brk, st);
+    if (p.inCar === dark) driveDark(p, dt, thr, brk, st, atk);
+    else driveCar(p, p.inCar, dt, thr, brk, st);
     charge(p, dt, true);
     return;
   }
@@ -2167,6 +2189,7 @@ function update(dt) {
     }
   }
   updateSpecial(dt);
+  updateDark(dt);
   compact(enemies, e => !e.dead);
   const fr = Math.pow(0.92, dt * 60);
   for (const q of parts) {

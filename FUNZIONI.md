@@ -60,10 +60,10 @@ Si parte scegliendo un biker. Gli altri aspettano in rimessa e prendono il coman
 | Biker | Moto | Arma | Pugni | Particolarità |
 |---|---|---|---|---|
 | **Zephyr** (leader) | rossa | Pistola: 10 danni, ricarica 0,6 s, lunga gittata | 2 | Può richiamare tutti dalla rimessa; centro alieni |
-| **Atlas** | verde | Doppia spada: 3 danni, raggio 26, ricarica 0,3 s | 2 | — |
-| **Caspian** | bianca | nessuna | 3 | Moto **x2**; notte veloce (vedi §11); **BLOCK** dalla rimessa |
+| **Atlas** | verde | Doppia spada: 3 danni, raggio 26, ricarica 0,3 s | 2 | **Doppie pistole** (5000$); **auto nera** con Sel |
+| **Caspian** | bianca | nessuna | 3 | Moto **x2**; notte veloce (vedi §11); **BLOCK** dalla rimessa; riporta l'auto nera a Times Square |
 | **Vesper** (leader) | blu | Pistola rapida: 8 danni, ricarica 0,3 s, gittata corta | 2 | Può richiamare tutti; centro alieni; matrimonio |
-| **Indigo** | nera e viola | Frusta: 4 danni, raggio 44, ricarica 0,5 s | 2 | — |
+| **Sel** | nera e viola | Frusta: 4 danni, raggio 44, ricarica 0,5 s | 2 | **Doppie pistole** (5000$); **auto nera** con Atlas |
 | **Nova** | rosa | nessuna | 1 | Diventa **Nyx** in chiesa; **tregua** al centro alieni |
 | **Akira** | arancione | Spada laser: colpo mortale, raggio 36, carica 1 s | 2 | **Radar avanzato** al centro NASA |
 | **Melanie** | gialla | nessuna | 2 | Scudo laser, moto x1,5, rapina furtiva, **RAPINALI TUTTI!**, **colpo delle batterie** |
@@ -118,6 +118,7 @@ Il comando passa al biker disponibile successivo. Se non ce n'è nessuno si aspe
 | Scudo NASA | Centro NASA | 500$ | Blocca le armi degli Xeno (non i pugni) per 20 minuti dal primo colpo. |
 | Moto potenziata | Negozio moto | 5000$ | Velocità x1,6 per sempre (Caspian x1,2). |
 | Seconda arma | Armeria | 10000$ | L'arma di un collega, si cambia con Q. |
+| Doppie pistole | Armeria (solo Atlas e Sel) | 5000$ a testa | **Solo per l'auto nera**, non si usano in moto: a bordo il compagno spara 2 colpi da 5 danni ogni 0,4 s. Finché l'auto nera non è stata fatta Atlas e Sel in armeria comprano solo queste; dopo possono comprare una seconda arma qualsiasi (10000$) da usare in moto. |
 | Obbligazione | Banca | 1000$ | +40$ al minuto per 30 minuti. |
 | Radar avanzato | Centro NASA (solo Akira) | 10000$ | Per tutto il team (vedi §8). |
 
@@ -155,7 +156,7 @@ Ci si interagisce con **E**.
 | **Centro NASA** | Scudo anti-Xeno 500$. **Akira:** solo radar avanzato 10000$. **Caspian:** notte veloce. |
 | **Ospedale** | Ricovero gratis, +10 vita al minuto, un biker alla volta. 3 farmaci donati da 2 biker diversi danno +25 vita massima a tutto il team (fino a 250). |
 | **Negozio moto** | Moto x1,6 (Caspian x1,2) per 5000$. |
-| **Armeria** | Seconda arma per 10000$. Due biker qualsiasi (anche Zephyr e Vesper) che arrivano **in coppia** si **allenano** insieme: +2 danni ad armi e pugni. Il primo resta fermo davanti all'armeria, il secondo arriva e preme E. |
+| **Armeria** | Seconda arma per 10000$ (Atlas e Sel: prima le **doppie pistole** per 5000$, solo per l'auto nera; fatta l'auto, una seconda arma qualsiasi). Due biker qualsiasi (anche Zephyr e Vesper) che arrivano **in coppia** si **allenano** insieme: +2 danni ad armi e pugni. Il primo resta fermo davanti all'armeria, il secondo arriva e preme E. |
 | **Banca** | Obbligazioni. |
 | **Centro alieni** | **Zephyr/Vesper:** 25$ per ogni Xeno abbattuto dall'ultima visita; con 10 o più arriva l'**auto medica** (3 farmaci alla rimessa e ricovero del biker più ferito). **Nova:** tregua. |
 | **Meccanico** (Melanie a piedi) | **Colpo delle batterie** (vedi §8). In moto Melanie compra il nitro come tutti. |
@@ -193,6 +194,27 @@ Ogni 15 minuti un negozio cerca un corriere. Prendi il pacco e consegnalo al neg
   - le batterie di **tutto il team** durano **5 minuti** (invece di 3);
   - la ricarica in rimessa diventa **x3** (+10 secondi ogni 10 secondi).
 - Se i 30 minuti scadono il colpo fallisce e si riparte da zero. In moto Melanie compra il nitro come gli altri.
+
+### Auto nera (Atlas e Sel)
+- **Requisito:** Atlas e Sel hanno tutti e due le **doppie pistole** (armeria, 5000$ a testa). Le doppie pistole
+  **non si usano in moto**, servono solo a bordo. Una volta fatta l'auto, Atlas e Sel possono comprare in armeria
+  una seconda arma qualsiasi (10000$) da usare in moto.
+- **Officina:** Atlas o Sel porta un'**auto della polizia rubata** da un **meccanico**. Il meccanico monta carrozzeria
+  e motore elettrico: dopo **1 ora** l'auto nera è pronta, **parcheggiata a Times Square**. Se ne costruisce una sola.
+- **Si sale a piedi e in due:** chi guida arriva a piedi all'auto e preme **E**; il compagno deve essere fermo vicino
+  all'auto (lasciato con Tab) oppure in rimessa se l'auto è a Times Square. Le moto restano dove sono.
+- **Vita in comune:** a bordo la vita di Atlas e Sel **si somma** (fino al doppio della vita massima).
+  Quando scendono ognuno ha **metà della vita complessiva**.
+- **Armi:** chi guida spara con l'auto (attacco): **2 colpi, 7 danni, ricarica 0,5 s, raggio 30**.
+  Il compagno spara da solo con le doppie pistole allo Xeno più vicino.
+- **Autonomia:** 8 minuti di guida. Da ferma si ricarica: **8 minuti a Times Square**, **1 ora** se lasciata altrove.
+- **Z:** scendono tutti e due; chi guida torna a piedi alla sua moto, il compagno va a piedi alla sua.
+  **Tab:** l'auto si ferma e restano a bordo (riprendendo Atlas o Sel si torna al volante).
+  **Shift + Tab:** scendono e vanno a piedi alle moto.
+- **Richiamo (R)** di Zephyr o Vesper: Atlas e Sel scendono dall'auto e vanno **a piedi alle loro moto**.
+- **Caspian** può guidarla (senza armi) **solo per riportarla a Times Square**: arrivato lì la lascia,
+  torna a piedi alla sua moto e la riporta in rimessa.
+- Se a bordo la vita arriva a 0, chi guida subisce la sorte normale e il compagno scende con 1 di vita.
 
 ### Radar avanzato (Akira al centro NASA)
 - Costa **10000$** e vale per **tutto il team**. Akira al centro NASA può comprare solo questo.
