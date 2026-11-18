@@ -4,7 +4,7 @@ const NIGHT = 12 * 3600,
   FINAL = NIGHT + 15 * 60,
   SAVE_KEY = 'nyx-save',
   OLD_SAVE_KEY = 'nyx-save-v3',
-  SAVE_V = 4;
+  SAVE_V = 5;
 let state = 'title',
   sel = 0,
   team = [],
@@ -167,7 +167,7 @@ const speedOf = b =>
   b.spd *
   (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) *
   (b.nyx ? 2 : 1) *
-  (wedded && (b.i === 0 || b.i === 3) ? 1.2 : 1);
+  (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
 function setW(b) {
   b.wi = Math.min(b.wi || 0, Math.max(0, b.weapons.length - 1));
   b.wpn = b.weapons.length ? ROSTER[b.weapons[b.wi]].wpn : null;
@@ -285,6 +285,7 @@ function resetRun() {
   bondT = 60;
   radarOn = false;
   resetSpecial();
+  resetStadium();
   clearDecals();
 }
 function newGame(start) {
@@ -388,6 +389,11 @@ function serialize() {
     truceT,
     truceCD,
     advRadar,
+    blockT,
+    heist,
+    superBat,
+    stad,
+    stadRuns,
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -434,6 +440,12 @@ function serialize() {
       tgt: e.tgt == null ? -1 : e.tgt,
       siegeT: e.siegeT || 0,
       taken: e.taken || [],
+      stad: e.stad || 0,
+      sg: e.sg || 0,
+      sm: e.sm || null,
+      wi: e.wi || 0,
+      slot: e.slot || 0,
+      ready: !!e.ready,
     })),
     shops: shops.map(s => ({ anger: s.anger, calm: s.calm, offT: s.offT || 0 })),
     police: police
@@ -477,12 +489,23 @@ function migrateSave(S) {
     S.trained = S.trained === true ? [1, 4] : [];
     S.v = 4;
   } // v3: allenamento solo Atlas+Indigo, 6 biker
+  // v4: la citta' generata dallo stesso seme e' cambiata (stadio, Central Park, Times Square)
+  if (S.v < 5) {
+    if (!S.meta.ended) titleMsg = 'NUOVA CITTA: IL VECCHIO SALVATAGGIO NON E COMPATIBILE';
+    return null;
+  }
   return S;
 }
 function loadGame(S) {
   meta = S.meta;
   genCity(meta.seed);
   resetRun();
+  superBat = !!S.superBat;
+  BAT_MAX = superBat ? SUPER_BAT : 180;
+  blockT = S.blockT || 0;
+  heist = S.heist || null;
+  stad = S.stad || null;
+  stadRuns = S.stadRuns || 0;
   ({ money, kills, copKills, garageMeds, xenoFullT, lowT, respawnT, nextEid, churchCD, noSpawnT, policeOp } = S);
   maxHP = S.maxHP || 100;
   team = makeTeam();
@@ -502,6 +525,14 @@ function loadGame(S) {
       e.tgt = d.tgt == null ? -1 : d.tgt;
       e.siegeT = d.siegeT || 0;
       e.taken = d.taken || [];
+    }
+    if (d.stad) {
+      e.stad = 1;
+      e.sg = d.sg || 0;
+      e.sm = d.sm || 'in';
+      e.wi = d.wi || 0;
+      e.slot = d.slot || 0;
+      e.ready = !!d.ready;
     }
   }
   truceT = S.truceT || 0;
@@ -534,6 +565,7 @@ function loadGame(S) {
     police.push(c);
   }
   for (const b of team) {
+    if (b.status === 'amb' && b.ambDest === 'stadio') toBay(b, 'garage');
     if (b.status === 'amb') {
       const h = shops.find(x => x.type === 'hosp');
       if (b.ambDest === 'hosp' && !team.some(t => t.status === 'hosp')) {
@@ -612,7 +644,7 @@ function charge(b, dt, still) {
     b.chg = 0;
     return;
   }
-  const per = inGarage(b.x, b.y) ? 15 : 30;
+  const per = inGarage(b.x, b.y) ? (superBat ? 10 : 15) : 30; // in rimessa x2 (x3 dopo il colpo delle batterie)
   b.chg += dt;
   if (b.chg >= per) {
     b.chg -= per;
@@ -680,8 +712,10 @@ function park(p) {
   }
 }
 function nextAvail(from) {
+  const lock = missionLock(); // missione stadio: solo i 3 biker dentro
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
+    if (lock && !stad.three.includes(j)) continue;
     if (AVAIL(team[j].status)) return j;
   }
   return -1;
@@ -732,7 +766,7 @@ function switchBiker(home) {
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
   const old = team[active];
   park(old);
-  if (home) sendHome(old);
+  if (home && !inMission(old)) sendHome(old);
   else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
   activate(n);
   sfx('switch');
@@ -760,6 +794,26 @@ function defeat() {
     p.outR = 'ARRESTATO';
     p.outT = 3600;
     msg(p.name + ' ARRESTATO! FUORI GIOCO 1 ORA', '#3a7bff');
+  } else if (p.lastSrc === 'xeno' && inMission(p)) {
+    // missione stadio: rapito al 100%, lo Xeno resta nello stadio e la moto resta li'
+    let cap = enemies.find(e => e.id === p.lastE && !e.dead),
+      bd = 1e9;
+    if (!cap)
+      for (const e of enemies) {
+        const d = dist(e.x, e.y, pb.x, pb.y) + (e.stad ? 0 : 5000);
+        if (!e.dead && d < bd) {
+          bd = d;
+          cap = e;
+        }
+      }
+    p.status = 'captured';
+    p.captor = cap ? cap.id : 0;
+    p.capT = 1800;
+    p.onFoot = false;
+    p.v = 0;
+    p.walkPath = null;
+    msg(p.name + ' RAPITO NELLO STADIO!', '#ff3df2');
+    return leaveActive();
   } else if (p.lastSrc === 'xeno') {
     let cap = enemies.find(e => e.id === p.lastE && !e.dead);
     if (!cap) {
@@ -794,7 +848,12 @@ function defeat() {
 }
 function freeCaptives(e) {
   for (const t of team)
-    if (t.status === 'captured' && t.captor === e.id) {
+    if (t.status === 'captured' && t.captor === e.id && inMission(t)) {
+      t.status = 'idle'; // missione stadio: torna a combattere dalla sua moto
+      t.hp = Math.max(t.hp, 25);
+      t.waitT = 0;
+      msg(t.name + ' LIBERATO! TORNA A COMBATTERE', t.ui);
+    } else if (t.status === 'captured' && t.captor === e.id) {
       t.status = 'garage';
       t.hp = Math.max(t.hp, 25);
       toBay(t);
@@ -825,6 +884,7 @@ function damageEnemy(e, d) {
   if (e.hp <= 0) {
     e.dead = true;
     kills++;
+    if (e.stad && missionLock()) stad.killed++;
     boom(b.x, b.y);
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);
@@ -1007,11 +1067,11 @@ const nearIdle = (i, s) => team[i] && team[i].status === 'idle' && dist(team[i].
 // ---------- negozi ed edifici speciali: tabella dati {hint, use} ----------
 // hint(p,s) -> testo dell'azione; se inizia con '!' e' solo un avviso (senza tasto davanti)
 const arrested = () => team.filter(t => t.status === 'out' && t.outR === 'ARRESTATO');
-// compagno per l'allenamento in armeria: due biker qualsiasi tranne i leader (Zephyr e Vesper)
+// compagno per l'allenamento in armeria: due biker qualsiasi, purche' arrivino in coppia
 function trainMate(p, s) {
-  if (!p || isLeader(p.i)) return null;
+  if (!p) return null;
   for (const t of team) {
-    if (t === p || isLeader(t.i)) continue;
+    if (t === p) continue;
     if (nearIdle(t.i, s) && !(trained.includes(p.i) && trained.includes(t.i))) return t;
   }
   return null;
@@ -1031,9 +1091,15 @@ const SHOP_ACT = {
     },
   },
   mech: {
-    hint: () => 'ELETTRONITRO 50$',
+    hint(p, s) {
+      // Melanie a piedi ruba le batterie, in moto compra il nitro
+      if (p && p.i === MELANIE && !superBat)
+        return p.onFoot ? heistHint(s) : 'ELETTRONITRO 50$ (A PIEDI: RUBA LE BATTERIE)';
+      return 'ELETTRONITRO 50$';
+    },
     use(p, s, b) {
-      if (p.nitro >= 5) msg('MASSIMO 5 ELETTRONITRO', '#ffe03c');
+      if (p.i === MELANIE && p.onFoot && !superBat) stealBattery(p, s, b);
+      else if (p.nitro >= 5) msg('MASSIMO 5 ELETTRONITRO', '#ffe03c');
       else if (money < 50) msg('SERVONO 50$', '#ff4d6d');
       else {
         money -= 50;
@@ -1106,7 +1172,7 @@ const SHOP_ACT = {
               pickR(R, ['#ff6ec7', '#ffffff', '#ffe03c', '#3a7bff', '#e8384f']),
               2,
             );
-          msg('ZEPHYR E VESPER SONO SPOSI! LE LORO MOTO VANNO X1.2', '#ff6ec7');
+          msg('ZEPHYR E VESPER SONO SPOSI! TUTTE LE MOTO VANNO X1.2', '#ff6ec7');
         }
         return;
       }
@@ -1356,12 +1422,13 @@ function interact(p) {
     }
   }
   if (hit('recall')) {
-    if (!isLeader(p.i)) msg('SOLO ZEPHYR E VESPER POSSONO RICHIAMARE GLI ALTRI', '#7a6f99');
+    if (p.i === 2) caspianBlock(p);
+    else if (!isLeader(p.i)) msg('SOLO ZEPHYR E VESPER RICHIAMANO (CASPIAN: BLOCK)', '#7a6f99');
     else if (!inGarage(b.x, b.y)) msg(p.name + ' PUO RICHIAMARE SOLO DALLA RIMESSA', '#ffe03c');
     else {
       let n = 0;
       for (const t of team)
-        if (t.status === 'idle') {
+        if (t.status === 'idle' && !inMission(t)) {
           const pl = planReturn(t);
           if (pl) {
             t.path = pl.pts;
@@ -1709,7 +1776,18 @@ function ambAction(leg) {
       board(w, busy ? 'medbay' : 'hosp');
       msg("L'AUTO MEDICA CARICA " + w.name, '#ff4d6d');
     }
+  } else if (leg.act === 'stadium') {
+    for (const i of leg.list) {
+      const w = team[i];
+      if (w.status === 'waitamb') board(w, 'stadio');
+    }
+    msg("L'AUTO MEDICA CARICA I BIKER DELLO STADIO", '#ff4d6d');
   } else if (leg.act === 'garage') {
+    for (const b of amb.riders.filter(b => b.ambDest === 'stadio')) {
+      toBay(b, 'garage');
+      b.hp = Math.max(b.hp, 1);
+      msg(b.name + ' RIPORTATO IN RIMESSA DAL CENTRO ALIENI', b.ui);
+    }
     for (const b of amb.riders.filter(b => b.ambDest === 'medbay')) {
       b.status = 'medbay';
       b.px = garage.cx + (b.i - 2.5) * 10;
@@ -1803,10 +1881,13 @@ function missionTarget() {
   return shops[mission.carrier < 0 ? mission.from : mission.to];
 }
 function planReturn(b) {
-  const s = nearestNodeLOS(b.x, b.y);
+  // dallo stadio si esce dall'entrata piu' vicina
+  const g = inStadium(b.x, b.y) ? nearGate(b.x, b.y) : null;
+  const s = g ? nearestNodeLOS(g.ox, g.oy) : nearestNodeLOS(b.x, b.y);
   const path = dijkstra(s, garage.node);
   if (!path) return null;
   const pts = path.map(i => ({ x: nodes[i].x, y: nodes[i].y }));
+  if (g) pts.unshift({ x: g.ix, y: g.iy }, { x: g.gx, y: g.gy }, { x: g.ox, y: g.oy });
   pts.push({ x: garage.bays[b.i].x, y: garage.bays[b.i].y });
   let len = 0,
     px = b.x,
@@ -1833,8 +1914,9 @@ function updateMate(b, dt) {
       break;
     case 'idle':
       charge(b, dt, true);
-      if (!zephyrWaits(b)) b.waitT -= dt;
-      if (b.waitT <= 0) {
+      // BLOCK di Caspian e missione stadio: nessuno rientra da solo
+      if (!zephyrWaits(b) && !holdIdle(b)) b.waitT -= dt;
+      if (b.waitT <= 0 && !holdIdle(b)) {
         b.chkT -= dt;
         if (b.chkT <= 0) {
           b.chkT = 2;
@@ -1963,8 +2045,11 @@ function update(dt) {
   else if (pAvail && hit('switch')) switchBiker(shiftHeld());
   const pp = pAvail ? team[active] : null;
   if (pp) {
+    const b0 = { x: pp.x, y: pp.y, fx: pp.fx, fy: pp.fy };
     updatePlayer(pp, dt);
+    confineToStadium(pp, b0);
     if (state === 'play' && team[active] === pp && pp.status === 'active') interact(pp);
+    if (state === 'play' && team[active] === pp) checkStadiumStart(pp);
   }
   pAvail = state === 'play';
   const ap = pAvail ? team[active] : null;
@@ -2059,7 +2144,7 @@ function update(dt) {
     policeOp.t -= dt;
     if (policeOp.t <= 0) {
       policeOp.t = 12;
-      const live = enemies.filter(e => !e.dead && e.kind !== 'gold');
+      const live = enemies.filter(e => !e.dead && e.kind !== 'gold' && !e.stad);
       if (live.length) {
         const e = live[Math.floor(R() * live.length)];
         e.dead = true;
@@ -2133,9 +2218,10 @@ function update(dt) {
   if (respawnT <= 0) {
     respawnT = 60;
     // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
-    if (E < NIGHT && noSpawnT <= 0 && enemies.length < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
+    if (E < NIGHT && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
-  if (enemies.length >= 20) {
+  // gli Xeno della missione stadio non contano per quota 20
+  if (cityXeno() >= 20) {
     if (xenoFullT === null) {
       xenoFullT = 60;
       msg('20 XENO! 1 MINUTO PER ABBATTERNE UNO', '#ff4d6d');
@@ -2161,7 +2247,7 @@ function update(dt) {
     if (ap.hp <= 0) ap.lastSrc = 'nyx';
     if (!ceremony) {
       for (const e of enemies) {
-        if (e.follow || e.kind) continue;
+        if (e.follow || e.kind || e.stad) continue;
         const q = body(e);
         if (dist(q.x, q.y, pBody.x, pBody.y) < NYX_R) {
           e.follow = true;
@@ -2229,6 +2315,7 @@ function update(dt) {
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
   }
   if (ap && ap.hp <= 0) defeat();
+  updateStadium(dt);
   if (state === 'wait') {
     const n = nextAvail(active);
     if (n >= 0) {

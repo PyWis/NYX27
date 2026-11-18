@@ -94,8 +94,8 @@ Zephyr, Atlas, Caspian, Vesper, Indigo, Nova e due nuovi:
 - **Melanie** (moto gialla): nessuna arma. Scudo laser (in moto ogni colpo toglie 1 di vita),
   moto x1.5, rapina furtiva: 70% di possibilità che non ci siano conseguenze.
 
-In armeria due biker qualsiasi, tranne i leader Zephyr e Vesper, possono allenarsi insieme:
-+2 danni ad armi e pugni.
+In armeria due biker qualsiasi che arrivano in coppia (anche Zephyr e Vesper) possono allenarsi insieme:
++2 danni ad armi e pugni. Il matrimonio di Zephyr e Vesper in chiesa porta **tutte** le moto a x1,2.
 
 ## Poteri speciali
 
@@ -110,7 +110,26 @@ In armeria due biker qualsiasi, tranne i leader Zephyr e Vesper, possono allenar
   sopra 3 (100% = arresto sicuro).
 - **Nova al centro alieni:** diventa Nyx e proclama una **tregua** di 15 minuti (5000$, una volta ogni ora):
   nessuno attacca nessuno. Intanto Nova torna Nova con 1 di vita, resta al centro alieni e non è giocabile;
-  se gli Xeno sono 15 o più non ne arrivano altri.
+  se gli Xeno sono 15 o più non ne arrivano altri. La tregua libera i biker rapiti, che però restano
+  **prigionieri nello stadio per 1 ora**.
+- **Caspian in rimessa:** **R** dà il comando **BLOCK**: per 30 minuti nessun biker rientra da solo in rimessa
+  (vanno comunque a recuperare la loro moto).
+- **Melanie dai meccanici:** a piedi ruba le batterie elettriche (-50 vita a furto). Se rapina tutti i meccanici
+  entro 30 minuti le batterie di tutto il team durano 5 minuti e la ricarica in rimessa diventa x3.
+
+## Lo stadio di baseball
+
+Ogni città ha uno stadio con 3 entrate. Con **3 biker dentro** (dalle 20:00, dalle 00:00 e dalle 05:00, al massimo
+3 volte) **12 Xeno assediano lo stadio** ed entrano da tutte le entrate. Si gioca solo con quei 3 biker, chi cade è
+rapito. Tutti i 12 abbattuti: l'auto medica del centro alieni li riporta in rimessa, rapporto alieni + 2000$.
+Almeno 9 o almeno 6 abbattuti: Nova deve correre allo stadio (10 o 5 minuti) e restare in ostaggio (1 o 2 ore).
+Meno di 6: tre Xeno escono con gli ostaggi (3 minuti per liberarli) e gli altri si fondono in due Xeno Rossi.
+Dettagli in [FUNZIONI.md](FUNZIONI.md).
+
+## La città
+
+Accanto alla rimessa, sul lato ovest, ci sono **Times Square** (piazza pedonale tra grattacieli pieni di neon)
+e **Central Park** (un parco grande con il lago).
 
 ## Xeno speciali
 
@@ -134,7 +153,8 @@ In armeria due biker qualsiasi, tranne i leader Zephyr e Vesper, possono allenar
 | `js/input.js` | tastiera rimappabile, gamepad, impostazioni |
 | `js/game.js` | stato, salvataggio, squadra, negozi (tabella dati), aggiornamento |
 | `js/ai.js` | Xeno e polizia |
-| `js/special.js` | Xeno Rosso/Silver/Gold, tregua, RAPINALI TUTTI!, radar avanzato |
+| `js/special.js` | Xeno Rosso/Silver/Gold, tregua, RAPINALI TUTTI!, radar avanzato, BLOCK, colpo delle batterie |
+| `js/stadium.js` | stadio di baseball: missione dell'assedio, ostaggi, auto medica |
 | `js/render.js` | mondo, edifici 3D, luci notturne, meteo, segni a terra |
 | `js/hud.js` | HUD, menu, titolo, opzioni |
 | `js/main.js` | loop a timestep fisso |

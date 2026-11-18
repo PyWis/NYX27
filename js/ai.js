@@ -74,6 +74,7 @@ function followMove(e, dt) {
   steerTo(e, tx, ty, spd, dt);
 }
 function updateEnemy(e, dt) {
+  if (e.stad && stadiumMove(e, dt)) return; // Xeno della missione stadio
   if (e.kind && specialMove(e, dt)) return; // Xeno Rosso / Silver / Gold
   if (e.follow && nyxOn()) {
     e.cd -= dt;

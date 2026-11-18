@@ -41,7 +41,7 @@ const ACTION_NAMES = {
   nitro: 'NITRO',
   weapon: 'CAMBIA ARMA',
   switch: 'CAMBIA BIKER',
-  recall: 'RICHIAMA IN RIMESSA',
+  recall: 'RICHIAMA / BLOCK',
   radar: 'RADAR NEGOZI',
   map: 'MAPPA',
   pause: 'PAUSA',

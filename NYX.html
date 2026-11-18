@@ -34,7 +34,7 @@ const VW = 640,
   BL = 16;
 const WPX = MW * CELL,
   HPX = MH * CELL;
-const BAT_MAX = 180;
+let BAT_MAX = 180; // 300 (5 minuti) dopo il colpo delle batterie di Melanie
 let viewScale = 1;
 function fit() {
   const s = Math.min(innerWidth / VW, innerHeight / VH);
@@ -513,38 +513,87 @@ let shops = [];
 // ===== js/city.js =====
 'use strict';
 // ---------- city generation ----------
-let ys, bands, solid, kind, blocks, nodes, edges, garage, neons, lamps, miniCv;
-// kind: 0 building,1 road,2 sidewalk,3 park,4 garage
+let ys, bands, solid, kind, blocks, nodes, edges, garage, neons, lamps, miniCv, stadium, landmarks;
+// kind: 0 building,1 road,2 sidewalk,3 park,4 garage,5 campo stadio,6 tribune,7 piazza,8 lago
+// isolati fissi: rimessa con Times Square e Central Park sul lato ovest, stadio di baseball
+const GAR_W = 12,
+  GAR_H = 16, // la fascia della rimessa e' alta 16 celle (ci stanno anche piazza e parco)
+  TSQ_W = 18,
+  CPK_W = 32,
+  STD_W = 24,
+  STD_H = 18,
+  STD_GATE = 3; // larghezza delle 3 entrate (celle)
+// posizioni (strade) tra a e b, con isolati da lo..hi celle; fn opzionale per spostare n
+function fillLine(a, b, lo, hi, fn) {
+  const out = [];
+  let x = a;
+  for (;;) {
+    let n = x + RW + ri(lo, hi);
+    if (fn) n = fn(n);
+    if (n + RW + lo > b) break;
+    out.push(n);
+    x = n;
+  }
+  return out;
+}
 function genCity(seed) {
   rng = mulberry(seed);
+  // fascia della rimessa al centro, fascia dello stadio a nord o a sud
+  const c0 = Math.round(MH / 2 - (RW + GAR_H) / 2),
+    c1 = c0 + RW + GAR_H;
+  const north = rr() < 0.5;
+  const s0 = north ? ri(40, 120) : ri(c1 + 50, MH - RW - (RW + STD_H) - 40),
+    s1 = s0 + RW + STD_H;
+  const fixed = north
+    ? [
+        [s0, s1],
+        [c0, c1],
+      ]
+    : [
+        [c0, c1],
+        [s0, s1],
+      ];
   ys = [0];
-  for (;;) {
-    const n = ys[ys.length - 1] + RW + ri(9, 15);
-    if (n + RW + 9 > MH - RW) {
-      ys.push(MH - RW);
-      break;
-    }
-    ys.push(n);
+  for (const [a, b] of fixed) {
+    ys.push(...fillLine(ys[ys.length - 1], a, 9, 15), a, b);
   }
+  ys.push(...fillLine(ys[ys.length - 1], MH - RW, 9, 15), MH - RW);
+  const midBand = ys.indexOf(c0),
+    stdBand = ys.indexOf(s0);
+  // colonne fisse: rimessa al centro, a ovest Times Square e poi Central Park; lo stadio in una posizione a caso
+  const gx0 = Math.round(MW / 2 - (RW + GAR_W) / 2),
+    gx1 = gx0 + RW + GAR_W,
+    tsx = gx0 - (RW + TSQ_W),
+    cpx = tsx - (RW + CPK_W);
+  const sx0 = ri(30, MW - RW - (RW + STD_W) - 30),
+    sx1 = sx0 + RW + STD_W;
   bands = [];
   let prev = [];
-  for (let i = 0; i < ys.length - 1; i++) {
-    const xs = [0];
-    let x = 0;
-    for (;;) {
-      let n = x + RW + ri(8, 14);
-      // evita l'allineamento con le strade verticali della fascia sopra -> incroci a T, quasi mai a +
-      for (let k = 0; k < 3; k++) {
-        if (prev.some(p => p > 0 && p < MW - RW && Math.abs(p - n) < 6) && rr() > 0.05) n += 7;
-        else break;
-      }
-      if (n + RW + 8 > MW - RW) {
-        xs.push(MW - RW);
-        break;
-      }
-      xs.push(n);
-      x = n;
+  // evita l'allineamento con le strade verticali della fascia sopra -> incroci a T, quasi mai a +
+  const avoid = n => {
+    for (let k = 0; k < 3; k++) {
+      if (prev.some(p => p > 0 && p < MW - RW && Math.abs(p - n) < 6) && rr() > 0.05) n += 7;
+      else break;
     }
+    return n;
+  };
+  const row = fx => {
+    const xs = [0];
+    for (const [a, b] of fx) xs.push(...fillLine(xs[xs.length - 1], a, 8, 14, avoid), a, b);
+    xs.push(...fillLine(xs[xs.length - 1], MW - RW, 8, 14, avoid), MW - RW);
+    return xs;
+  };
+  for (let i = 0; i < ys.length - 1; i++) {
+    const xs =
+      i === midBand
+        ? row([
+            [cpx, tsx],
+            [tsx, gx0],
+            [gx0, gx1],
+          ]).filter((v, k, a) => a.indexOf(v) === k)
+        : i === stdBand
+          ? row([[sx0, sx1]])
+          : row([]);
     bands.push(xs);
     prev = xs;
   }
@@ -609,20 +658,16 @@ function genCity(seed) {
     for (let k = 0; k < arr.length - 1; k++) link(nid(arr[k], ys[i]), nid(arr[k + 1], ys[i]), true);
   }
   bands.forEach((xs, i) => xs.forEach(x => link(nid(x, ys[i]), nid(x, ys[i + 1]), false)));
-  // garage
-  const mid = Math.floor(bands.length / 2);
+  // garage (+ Times Square e Central Park sul lato ovest) e stadio
+  const mid = midBand;
   const gx = bands[mid];
-  let j = 0,
-    bd = 1e9;
-  for (let k = 0; k < gx.length - 1; k++) {
-    const c = (gx[k] + gx[k + 1]) / 2;
-    if (Math.abs(c - MW / 2) < bd) {
-      bd = Math.abs(c - MW / 2);
-      j = k;
-    }
-  }
+  const j = gx.indexOf(gx0);
   const gb = blocks.find(b => b.band === mid && b.col === j);
   gb.type = 'garage';
+  blocks.find(b => b.band === mid && b.col === gx.indexOf(tsx)).type = 'square';
+  blocks.find(b => b.band === mid && b.col === gx.indexOf(cpx)).type = 'cpark';
+  const sb = blocks.find(b => b.band === stdBand && b.col === bands[stdBand].indexOf(sx0));
+  sb.type = 'stadium';
   const ix = (gb.x + 1) * CELL,
     iy = (gb.y + 1) * CELL,
     iw = (gb.w - 2) * CELL,
@@ -643,6 +688,7 @@ function genCity(seed) {
       garage.bays.push({ x: Math.round(ix + (iw * (c + 0.5)) / (NB / 2)), y: Math.round(iy + ih * (r ? 0.78 : 0.27)) });
   // parks
   for (const b of blocks) if (b.type === 'city' && rr() < 0.07 && dist(b.x, b.y, gb.x, gb.y) > 6) b.type = 'park';
+  landmarks = [];
   for (const b of blocks) {
     carve(b.x, b.y, b.w, 1, 2);
     carve(b.x, b.y + b.h - 1, b.w, 1, 2);
@@ -650,6 +696,9 @@ function genCity(seed) {
     carve(b.x + b.w - 1, b.y, 1, b.h, 2);
     if (b.type === 'park') carve(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 3);
     else if (b.type === 'garage') carve(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 4);
+    else if (b.type === 'cpark') buildCentralPark(b);
+    else if (b.type === 'square') buildSquare(b);
+    else if (b.type === 'stadium') buildStadium(b);
     else {
       const r = mulberry(b.seed);
       const out = [];
@@ -657,19 +706,7 @@ function genCity(seed) {
       for (const L of out) {
         L.seed = Math.floor(r() * 1e9);
         L.hgt = 2 + Math.floor(r() * 5);
-        L.roof = pickR(r, [
-          '#3b3552',
-          '#45405e',
-          '#2f3b4a',
-          '#4a3b3b',
-          '#3a4a44',
-          '#504a5c',
-          '#2e2e3e',
-          '#5a4a3a',
-          '#36404f',
-          '#3e4658',
-          '#4b3f52',
-        ]);
+        L.roof = pickR(r, ROOFS);
         const ix2 = b.x + 1,
           iy2 = b.y + 1,
           ex = b.x + b.w - 1,
@@ -758,17 +795,27 @@ function genCity(seed) {
   miniCv = mk(MW / 2, MH / 2);
   const mg = miniCv.getContext('2d');
   const id = mg.createImageData(MW / 2, MH / 2);
-  const COLS = { 1: [107, 93, 146], 2: [46, 39, 66], 0: [18, 14, 26], 3: [31, 90, 51], 4: [255, 61, 242] };
+  const COLS = {
+    1: [107, 93, 146],
+    2: [46, 39, 66],
+    0: [18, 14, 26],
+    3: [31, 90, 51],
+    4: [255, 61, 242],
+    5: [46, 120, 62],
+    6: [150, 150, 176],
+    7: [128, 104, 150],
+    8: [40, 84, 160],
+  };
+  const PRIO = [4, 1, 6, 8, 5, 7, 3, 2];
   for (let y = 0; y < MH / 2; y++)
     for (let x = 0; x < MW / 2; x++) {
-      let best = 0;
       const ks = [
         kind[2 * y * MW + 2 * x],
         kind[2 * y * MW + 2 * x + 1],
         kind[(2 * y + 1) * MW + 2 * x],
         kind[(2 * y + 1) * MW + 2 * x + 1],
       ];
-      best = ks.includes(4) ? 4 : ks.includes(1) ? 1 : ks.includes(3) ? 3 : ks.includes(2) ? 2 : 0;
+      const best = PRIO.find(k => ks.includes(k)) || 0;
       const c = COLS[best];
       const o = ((y * MW) / 2 + x) * 4;
       id.data[o] = c[0];
@@ -779,6 +826,163 @@ function genCity(seed) {
   mg.putImageData(id, 0, 0);
   bcache.clear();
   if (typeof resetWorldCaches === 'function') resetWorldCaches();
+}
+const ROOFS = [
+  '#3b3552',
+  '#45405e',
+  '#2f3b4a',
+  '#4a3b3b',
+  '#3a4a44',
+  '#504a5c',
+  '#2e2e3e',
+  '#5a4a3a',
+  '#36404f',
+  '#3e4658',
+  '#4b3f52',
+];
+function setCells(x, y, w, h, k, s) {
+  for (let j = y; j < y + h; j++)
+    for (let i = x; i < x + w; i++) {
+      const id = j * MW + i;
+      solid[id] = s;
+      kind[id] = k;
+    }
+}
+const blockCenter = b => ({ x: (b.x + b.w / 2) * CELL, y: (b.y + b.h / 2) * CELL });
+// ---------- Central Park: prato grande con lago (il lago non si attraversa) ----------
+function buildCentralPark(b) {
+  const ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2;
+  setCells(ix, iy, iw, ih, 3, 0);
+  const cx = ix + iw * 0.64,
+    cy = iy + ih * 0.45,
+    ax = 5.2,
+    ay = Math.min(3.6, ih * 0.25);
+  for (let j = iy; j < iy + ih; j++)
+    for (let i = ix; i < ix + iw; i++) {
+      const dx = (i + 0.5 - cx) / ax,
+        dy = (j + 0.5 - cy) / ay;
+      if (dx * dx + dy * dy <= 1) setCells(i, j, 1, 1, 8, 1);
+    }
+  b.lake = { cx, cy, ax, ay };
+  landmarks.push({ name: 'CENTRAL PARK', ...blockCenter(b), c: '#5cff7a', b });
+}
+// ---------- Times Square: piazza pedonale tra due file di grattacieli pieni di neon ----------
+function buildSquare(b) {
+  const r = mulberry(b.seed ^ 0x7153),
+    ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2,
+    D = 3;
+  setCells(ix, iy, iw, ih, 7, 0);
+  const rowLots = (y, top) => {
+    let x = ix;
+    const end = ix + iw;
+    while (x < end) {
+      let w = 4 + Math.floor(r() * 3);
+      if (end - x - w < 4) w = end - x;
+      const L = { x, y, w, h: D, seed: Math.floor(r() * 1e9), hgt: 5 + Math.floor(r() * 3), roof: pickR(r, ROOFS) };
+      b.lots.push(L);
+      setCells(x, y, w, D, 0, 1);
+      // insegne giganti verso la piazza (2-3 per palazzo) e una verso la strada
+      const fy = top ? (L.y + L.h) * CELL : L.y * CELL - 2;
+      const seg = 2 + Math.floor(r() * 2),
+        sw = Math.floor((w * CELL - 6) / seg);
+      for (let k = 0; k < seg; k++)
+        b.neon.push({
+          x: L.x * CELL + 3 + k * sw,
+          y: fy,
+          w: sw - 3,
+          h: 2,
+          c: pickR(r, NEON),
+          ph: r() * 10,
+          fl: r() < 0.3,
+          L,
+        });
+      if (r() < 0.6) {
+        const l = Math.max(8, Math.floor(w * CELL * 0.5));
+        b.neon.push({
+          x: L.x * CELL + 4,
+          y: top ? L.y * CELL - 2 : (L.y + L.h) * CELL,
+          w: l,
+          h: 2,
+          c: pickR(r, NEON),
+          ph: r() * 10,
+          fl: false,
+          L,
+        });
+      }
+      x += w;
+    }
+  };
+  rowLots(iy, true);
+  rowLots(iy + ih - D, false);
+  landmarks.push({ name: 'TIMES SQUARE', ...blockCenter(b), c: '#ff3df2', b });
+}
+// ---------- stadio di baseball: tribune con 3 entrate (ovest, nord, est) ----------
+function buildStadium(b) {
+  const ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2,
+    G = STD_GATE,
+    P = v => v * CELL;
+  setCells(ix, iy, iw, ih, 5, 0);
+  setCells(ix, iy, iw, 2, 6, 1);
+  setCells(ix, iy + ih - 2, iw, 2, 6, 1);
+  setCells(ix, iy, 2, ih, 6, 1);
+  setCells(ix + iw - 2, iy, 2, ih, 6, 1);
+  const gm = Math.floor((ih - G) / 2),
+    gn = Math.floor((iw - G) / 2);
+  setCells(ix, iy + gm, 2, G, 5, 0);
+  setCells(ix + gn, iy, G, 2, 5, 0);
+  setCells(ix + iw - 2, iy + gm, 2, G, 5, 0);
+  const my = P(iy + gm + G / 2),
+    mx = P(ix + gn + G / 2);
+  stadium = {
+    b,
+    x0: P(ix + 2),
+    y0: P(iy + 2),
+    x1: P(ix + iw - 2),
+    y1: P(iy + ih - 2),
+    gates: [
+      { n: 'OVEST', gx: P(ix + 1), gy: my, ox: P(b.x - 1.5), oy: my, ix: P(ix + 3.5), iy: my },
+      { n: 'NORD', gx: mx, gy: P(iy + 1), ox: mx, oy: P(b.y - 1.5), ix: mx, iy: P(iy + 3.5) },
+      { n: 'EST', gx: P(ix + iw - 1), gy: my, ox: P(b.x + b.w + 1.5), oy: my, ix: P(ix + iw - 3.5), iy: my },
+    ],
+    lights: [
+      { x: P(ix + 1), y: P(iy + 1) },
+      { x: P(ix + iw - 1), y: P(iy + 1) },
+      { x: P(ix + 1), y: P(iy + ih - 1) },
+      { x: P(ix + iw - 1), y: P(iy + ih - 1) },
+    ],
+  };
+  stadium.cx = (stadium.x0 + stadium.x1) / 2;
+  stadium.cy = (stadium.y0 + stadium.y1) / 2;
+  landmarks.push({ name: 'STADIO', ...blockCenter(b), c: '#9fd4ff', b });
+}
+// dentro il campo dello stadio (le entrate non contano)
+const inStadium = (x, y) => x >= stadium.x0 && x < stadium.x1 && y >= stadium.y0 && y < stadium.y1;
+// vicino allo stadio: dentro l'isolato o a meno di m pixel dal suo bordo
+const nearStadium = (x, y, m) => {
+  const b = stadium.b;
+  return x > b.x * CELL - m && x < (b.x + b.w) * CELL + m && y > b.y * CELL - m && y < (b.y + b.h) * CELL + m;
+};
+// entrata piu' vicina a un punto
+function nearGate(x, y) {
+  let best = stadium.gates[0],
+    bd = 1e9;
+  for (const g of stadium.gates) {
+    const d = dist(g.ix, g.iy, x, y);
+    if (d < bd) {
+      bd = d;
+      best = g;
+    }
+  }
+  return best;
 }
 function genShops() {
   shops = [];
@@ -819,6 +1023,24 @@ function genShops() {
   const types = [...SPECIALS];
   for (let i = 0; i < 5; i++) types.push('pharm', 'mech');
   for (let i = 0; i < 20; i++) types.push('shop');
+  // gli isolati grandi (parco, piazza, stadio) possono lasciare zone vuote: completa con altri isolati
+  if (slots.length < types.length) {
+    const extra = blocks.filter(b => b.type === 'city' && b.lots.length && !used.has(b));
+    while (slots.length < types.length && extra.length) {
+      const b = extra.splice(Math.floor(rr() * extra.length), 1)[0];
+      const opts = [];
+      for (const L of b.lots) {
+        if (L.y === b.y + 1) opts.push([L, 't']);
+        if (L.y + L.h === b.y + b.h - 1) opts.push([L, 'b']);
+        if (L.x === b.x + 1) opts.push([L, 'l']);
+        if (L.x + L.w === b.x + b.w - 1) opts.push([L, 'r']);
+      }
+      if (!opts.length) continue;
+      used.add(b);
+      opts.sort((p, q) => q[0].w * q[0].h - p[0].w * p[0].h);
+      slots.push({ b, opts });
+    }
+  }
   let ni = 0;
   types.forEach((type, k) => {
     const sl = slots[k];
@@ -1411,7 +1633,12 @@ function renderBlock(b) {
     ih = H - 2 * CELL;
   if (b.type === 'park') drawPark(g, r, ix, iy, iw, ih);
   else if (b.type === 'garage') drawGarage(g, r, ix, iy, iw, ih, b);
-  else
+  else if (b.type === 'cpark') drawCentralPark(g, r, ix, iy, iw, ih, b);
+  else if (b.type === 'stadium') drawStadium(g, r, ix, iy, iw, ih, b);
+  else if (b.type === 'square') {
+    drawSquare(g, r, ix, iy, iw, ih, b);
+    for (const L of b.lots) drawLotBase(g, L, b);
+  } else
     for (const L of b.lots) {
       if (L.flat) drawLot(g, L, b);
       else drawLotBase(g, L, b);
@@ -1567,6 +1794,237 @@ function drawPark(g, r, ix, iy, iw, ih) {
   }
   P(cx + 10, cy - 8, 8, 3, '#5a3d22');
   P(cx - 18, cy + 5, 8, 3, '#5a3d22');
+}
+// ---------- Central Park: prati, sentieri, il lago e la fontana ----------
+function drawCentralPark(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  const isLake = (x, y) => {
+    const cx = b.x + Math.floor(x / CELL),
+      cy = b.y + Math.floor(y / CELL);
+    return kind[cy * MW + cx] === 8;
+  };
+  P(ix, iy, iw, ih, '#1c3a26');
+  for (let i = 0; i < (iw * ih) / 5; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, pickR(r, ['#234a2f', '#163020', '#2a5636', '#1f4229']));
+  for (let i = 0; i < (iw * ih) / 220; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, pickR(r, ['#ff7ad9', '#ffe03c', '#ffffff', '#9fd4ff']));
+  // sentieri: anello perimetrale e due viali che si incrociano
+  const path = '#3a3226',
+    pe = '#4a4030';
+  P(ix + 8, iy + 8, iw - 16, 5, path);
+  P(ix + 8, iy + ih - 13, iw - 16, 5, path);
+  P(ix + 8, iy + 8, 5, ih - 16, path);
+  P(ix + iw - 13, iy + 8, 5, ih - 16, path);
+  const vx = ix + ((iw * 0.3) | 0),
+    hy = iy + ((ih * 0.55) | 0);
+  P(vx, iy + 8, 6, ih - 16, path);
+  P(ix + 8, hy, iw - 16, 6, path);
+  for (let x = ix + 8; x < ix + iw - 8; x += 3) {
+    P(x, iy + 8, 1, 1, pe);
+    P(x, hy, 1, 1, pe);
+  }
+  // il lago (le celle d'acqua sono solide): riva di sabbia, acqua, riflessi
+  for (let y = iy; y < iy + ih; y += CELL)
+    for (let x = ix; x < ix + iw; x += CELL)
+      if (isLake(x, y)) {
+        P(x, y, CELL, CELL, '#1a4670');
+        for (let k = 0; k < 6; k++) P(x + ((r() * 14) | 0), y + ((r() * 15) | 0), 2, 1, '#2d6aa0');
+        if (!isLake(x - CELL, y)) P(x, y, 2, CELL, '#b49a6a');
+        if (!isLake(x + CELL, y)) P(x + CELL - 2, y, 2, CELL, '#b49a6a');
+        if (!isLake(x, y - CELL)) P(x, y, CELL, 2, '#b49a6a');
+        if (!isLake(x, y + CELL)) P(x, y + CELL - 2, CELL, 2, '#b49a6a');
+      }
+  // barchette a remi sul lago
+  for (let y = iy; y < iy + ih; y += CELL)
+    for (let x = ix; x < ix + iw; x += CELL)
+      if (isLake(x, y) && isLake(x + CELL, y) && isLake(x, y + CELL) && r() < 0.18) {
+        P(x + 6, y + 7, 7, 3, '#6b4a32');
+        P(x + 7, y + 8, 5, 1, '#c9a070');
+      }
+  // fontana (Bethesda) all'incrocio dei viali
+  pc(g, vx + 3, hy + 3, 11, '#4a4458');
+  pc(g, vx + 3, hy + 3, 9, '#1d4f7a');
+  pc(g, vx + 3, hy + 3, 3, '#7fd0ff');
+  P(vx + 2, hy + 2, 2, 2, '#ffffff');
+  // alberi
+  const n = Math.floor((iw * ih) / 380);
+  for (let i = 0; i < n; i++) {
+    const rad = 4 + ((r() * 5) | 0);
+    const tx = ix + rad + 2 + ((r() * (iw - 2 * rad - 4)) | 0),
+      ty = iy + rad + 2 + ((r() * (ih - 2 * rad - 4)) | 0);
+    if (Math.abs(tx - vx - 3) < rad + 6 || Math.abs(ty - hy - 3) < rad + 6) continue;
+    if (isLake(tx - rad - 3, ty) || isLake(tx + rad + 3, ty) || isLake(tx, ty - rad - 3) || isLake(tx, ty + rad + 3))
+      continue;
+    pc(g, tx + 2, ty + 2, rad, 'rgba(0,0,0,.35)');
+    pc(g, tx, ty, rad, '#163a22');
+    pc(g, tx - 1, ty - 1, rad - 2, '#22553a');
+    for (let k = 0; k < rad * 2; k++)
+      P(tx - rad + ((r() * rad * 2) | 0), ty - rad + ((r() * rad * 2) | 0), 1, 1, '#3c8a52');
+  }
+  // panchine lungo i viali
+  for (let x = ix + 30; x < ix + iw - 30; x += 46) {
+    P(x, hy - 4, 8, 2, '#5a3d22');
+    P(x + 12, hy + 8, 8, 2, '#5a3d22');
+  }
+  const t = 'CENTRAL PARK',
+    tw = t.length * 6 - 1;
+  P(ix + 16, iy + 16, tw + 6, 11, '#0f1f14');
+  glyphs(g, t, ix + 19, iy + 18, 1, '#5cff7a');
+}
+// ---------- Times Square: piazza pedonale, Broadway in diagonale, scalinata rossa ----------
+function drawSquare(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  P(ix, iy, iw, ih, '#3a3150');
+  g.fillStyle = '#433a5c';
+  for (let x = ix; x < ix + iw; x += 8) g.fillRect(x, iy, 1, ih);
+  for (let y = iy; y < iy + ih; y += 8) g.fillRect(ix, y, iw, 1);
+  for (let i = 0; i < (iw * ih) / 30; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, r() < 0.5 ? '#4b4166' : '#2f2842');
+  // Broadway taglia la piazza in diagonale
+  for (let y = iy; y < iy + ih; y++) {
+    const t = (y - iy) / ih,
+      x = ix + iw * 0.15 + t * iw * 0.7;
+    P(x | 0, y, 26, 1, (y >> 2) % 2 ? '#51477a' : '#4b4172');
+  }
+  // scalinata rossa al centro della piazza
+  const sw = 46,
+    sh = 26,
+    sx = (ix + iw / 2 - sw / 2) | 0,
+    sy = (iy + ih / 2 - sh / 2) | 0;
+  P(sx + 2, sy + 3, sw, sh, 'rgba(0,0,0,.4)');
+  P(sx, sy, sw, sh, '#b0182a');
+  for (let y = sy + 2; y < sy + sh; y += 4) P(sx, y, sw, 1, '#ff4d5a');
+  P(sx, sy, sw, 1, '#ffd0d4');
+  glyphs(g, 'NYX', sx + 14, sy + 10, 1, '#ffe9a0');
+  // fioriere e chioschi
+  for (let x = ix + 14; x < ix + iw - 14; x += 40) {
+    const y = iy + 3 * CELL + 6;
+    P(x, y, 10, 6, '#2a2440');
+    P(x + 1, y + 1, 8, 4, '#2f6b3a');
+    P(x + 3, y + 2, 2, 2, '#ff7ad9');
+    const y2 = iy + ih - 3 * CELL - 12;
+    P(x + 16, y2, 10, 6, '#2a2440');
+    P(x + 17, y2 + 1, 8, 4, '#2f6b3a');
+    P(x + 20, y2 + 2, 2, 2, '#ffe03c');
+  }
+  // maxischermi a terra lungo i palazzi (luce fissa, i colori cambiano di notte nella lightmap)
+  for (let x = ix + 6; x < ix + iw - 30; x += 52) {
+    P(x, iy + 3 * CELL + 1, 24, 3, pickR(r, NEON));
+    P(x + 20, iy + ih - 3 * CELL - 4, 24, 3, pickR(r, NEON));
+  }
+  const t = 'TIMES SQUARE',
+    tw = t.length * 6 - 1;
+  glyphs(g, t, (ix + iw / 2 - tw / 2) | 0, sy + sh + 8, 1, '#ffe03c');
+}
+// ---------- stadio di baseball: tribune, 3 entrate, diamante ----------
+function drawStadium(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  const S = 2 * CELL,
+    G = STD_GATE * CELL,
+    gm = Math.floor((b.h - 2 - STD_GATE) / 2) * CELL,
+    gn = Math.floor((b.w - 2 - STD_GATE) / 2) * CELL;
+  // tribune: file di seggiolini
+  P(ix, iy, iw, ih, '#24273a');
+  const rows = ['#34508e', '#2b3550', '#8a2f3f', '#2b3550'];
+  for (let k = 0; k < S / 3; k++) {
+    const c = rows[k % 4],
+      o = 1 + k * 3;
+    P(ix + o, iy + o, iw - 2 * o, 2, c);
+    P(ix + o, iy + ih - o - 2, iw - 2 * o, 2, c);
+    P(ix + o, iy + o, 2, ih - 2 * o, c);
+    P(ix + iw - o - 2, iy + o, 2, ih - 2 * o, c);
+  }
+  // qualche tifoso (pochi: e' notte)
+  for (let i = 0; i < (iw * ih) / 260; i++) {
+    const x = ix + ((r() * iw) | 0),
+      y = iy + ((r() * ih) | 0);
+    if (x > ix + S && x < ix + iw - S && y > iy + S && y < iy + ih - S) continue;
+    P(x, y, 1, 1, pickR(r, ['#ffd27a', '#ff7ad9', '#ffffff', '#3cf2ff']));
+  }
+  P(ix, iy, iw, 1, '#9fa6c8');
+  P(ix, iy + ih - 1, iw, 1, '#9fa6c8');
+  P(ix, iy, 1, ih, '#9fa6c8');
+  P(ix + iw - 1, iy, 1, ih, '#9fa6c8');
+  // campo
+  const fx = ix + S,
+    fy = iy + S,
+    fw = iw - 2 * S,
+    fh = ih - 2 * S;
+  for (let x = fx; x < fx + fw; x += 12) P(x, fy, Math.min(12, fx + fw - x), fh, (x - fx) % 24 ? '#2a6e38' : '#2f7a3e');
+  P(fx, fy, fw, 6, '#6b4a2e');
+  P(fx, fy + fh - 6, fw, 6, '#6b4a2e');
+  P(fx, fy, 6, fh, '#6b4a2e');
+  P(fx + fw - 6, fy, 6, fh, '#6b4a2e');
+  // diamante: casa base in basso al centro
+  const hx = (fx + fw / 2) | 0,
+    hy = fy + fh - 22,
+    bd = 40,
+    mcx = hx,
+    mcy = hy - bd;
+  for (let y = mcy - bd - 16; y <= hy + 14; y++)
+    for (let x = hx - bd - 16; x <= hx + bd + 16; x++) {
+      const m = Math.abs(x - mcx) + Math.abs(y - mcy);
+      if (m <= bd + 14 && m > bd - 10) P(x, y, 1, 1, '#8a5a34');
+    }
+  pc(g, hx, hy, 9, '#8a5a34');
+  pc(g, mcx, mcy, 6, '#8a5a34');
+  P(mcx - 2, mcy, 5, 1, '#ffffff');
+  // linee di foul
+  for (let k = 0; k < 140; k++) {
+    const a = hx - k,
+      c = hx + k,
+      y = hy - k;
+    if (y < fy + 6) break;
+    if (a > fx + 6) P(a, y, 1, 1, '#e8e8f0');
+    if (c < fx + fw - 6) P(c, y, 1, 1, '#e8e8f0');
+  }
+  for (const [x, y] of [
+    [hx, hy],
+    [hx + bd, hy - bd],
+    [hx, hy - 2 * bd],
+    [hx - bd, hy - bd],
+  ])
+    P(x - 2, y - 2, 4, 4, '#ffffff');
+  P(hx - 6, hy + 3, 3, 5, '#e8e8f0');
+  P(hx + 4, hy + 3, 3, 5, '#e8e8f0');
+  // 3 entrate (ovest, nord, est) con frecce gialle
+  const gate = (x, y, w, h, lab, lx, ly) => {
+    P(x, y, w, h, '#17141f');
+    for (let k = 2; k < Math.max(w, h) - 2; k += 6)
+      if (w > h) P(x + k, y + (h >> 1) - 1, 3, 2, '#e0c020');
+      else P(x + (w >> 1) - 1, y + k, 2, 3, '#e0c020');
+    glyphs(g, lab, lx, ly, 1, '#ffe03c');
+  };
+  gate(ix, iy + gm, S, G, 'A', ix + S + 4, iy + gm + G / 2 - 3);
+  gate(ix + gn, iy, G, S, 'B', ix + gn + G / 2 - 2, iy + S + 4);
+  gate(ix + iw - S, iy + gm, S, G, 'C', ix + iw - S - 9, iy + gm + G / 2 - 3);
+  // torri faro agli angoli
+  for (const [x, y] of [
+    [ix + 6, iy + 6],
+    [ix + iw - 16, iy + 6],
+    [ix + 6, iy + ih - 16],
+    [ix + iw - 16, iy + ih - 16],
+  ]) {
+    P(x, y, 10, 10, '#4a4f66');
+    P(x + 1, y + 1, 8, 8, '#2c3044');
+    for (let k = 0; k < 3; k++) P(x + 2 + k * 2, y + 2, 1, 6, '#fff6c8');
+  }
+  // tabellone sulla tribuna sud
+  const t = 'NYX BALLPARK',
+    tw = t.length * 6 - 1,
+    tx = (ix + iw / 2 - tw / 2) | 0,
+    ty = iy + ih - S + 12;
+  P(tx - 4, ty - 3, tw + 8, 13, '#0b0a12');
+  glyphs(g, t, tx, ty, 1, '#ffe03c');
 }
 function drawGarage(g, r, ix, iy, iw, ih, b) {
   const P = (x, y, w, h, cl) => {
@@ -1975,7 +2433,7 @@ const ACTION_NAMES = {
   nitro: 'NITRO',
   weapon: 'CAMBIA ARMA',
   switch: 'CAMBIA BIKER',
-  recall: 'RICHIAMA IN RIMESSA',
+  recall: 'RICHIAMA / BLOCK',
   radar: 'RADAR NEGOZI',
   map: 'MAPPA',
   pause: 'PAUSA',
@@ -2383,7 +2841,7 @@ const NIGHT = 12 * 3600,
   FINAL = NIGHT + 15 * 60,
   SAVE_KEY = 'nyx-save',
   OLD_SAVE_KEY = 'nyx-save-v3',
-  SAVE_V = 4;
+  SAVE_V = 5;
 let state = 'title',
   sel = 0,
   team = [],
@@ -2546,7 +3004,7 @@ const speedOf = b =>
   b.spd *
   (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) *
   (b.nyx ? 2 : 1) *
-  (wedded && (b.i === 0 || b.i === 3) ? 1.2 : 1);
+  (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
 function setW(b) {
   b.wi = Math.min(b.wi || 0, Math.max(0, b.weapons.length - 1));
   b.wpn = b.weapons.length ? ROSTER[b.weapons[b.wi]].wpn : null;
@@ -2664,6 +3122,7 @@ function resetRun() {
   bondT = 60;
   radarOn = false;
   resetSpecial();
+  resetStadium();
   clearDecals();
 }
 function newGame(start) {
@@ -2767,6 +3226,11 @@ function serialize() {
     truceT,
     truceCD,
     advRadar,
+    blockT,
+    heist,
+    superBat,
+    stad,
+    stadRuns,
     state: state === 'wait' ? 'wait' : 'play',
     team: team.map(b => ({
       status: b.status,
@@ -2813,6 +3277,12 @@ function serialize() {
       tgt: e.tgt == null ? -1 : e.tgt,
       siegeT: e.siegeT || 0,
       taken: e.taken || [],
+      stad: e.stad || 0,
+      sg: e.sg || 0,
+      sm: e.sm || null,
+      wi: e.wi || 0,
+      slot: e.slot || 0,
+      ready: !!e.ready,
     })),
     shops: shops.map(s => ({ anger: s.anger, calm: s.calm, offT: s.offT || 0 })),
     police: police
@@ -2856,12 +3326,23 @@ function migrateSave(S) {
     S.trained = S.trained === true ? [1, 4] : [];
     S.v = 4;
   } // v3: allenamento solo Atlas+Indigo, 6 biker
+  // v4: la citta' generata dallo stesso seme e' cambiata (stadio, Central Park, Times Square)
+  if (S.v < 5) {
+    if (!S.meta.ended) titleMsg = 'NUOVA CITTA: IL VECCHIO SALVATAGGIO NON E COMPATIBILE';
+    return null;
+  }
   return S;
 }
 function loadGame(S) {
   meta = S.meta;
   genCity(meta.seed);
   resetRun();
+  superBat = !!S.superBat;
+  BAT_MAX = superBat ? SUPER_BAT : 180;
+  blockT = S.blockT || 0;
+  heist = S.heist || null;
+  stad = S.stad || null;
+  stadRuns = S.stadRuns || 0;
   ({ money, kills, copKills, garageMeds, xenoFullT, lowT, respawnT, nextEid, churchCD, noSpawnT, policeOp } = S);
   maxHP = S.maxHP || 100;
   team = makeTeam();
@@ -2881,6 +3362,14 @@ function loadGame(S) {
       e.tgt = d.tgt == null ? -1 : d.tgt;
       e.siegeT = d.siegeT || 0;
       e.taken = d.taken || [];
+    }
+    if (d.stad) {
+      e.stad = 1;
+      e.sg = d.sg || 0;
+      e.sm = d.sm || 'in';
+      e.wi = d.wi || 0;
+      e.slot = d.slot || 0;
+      e.ready = !!d.ready;
     }
   }
   truceT = S.truceT || 0;
@@ -2913,6 +3402,7 @@ function loadGame(S) {
     police.push(c);
   }
   for (const b of team) {
+    if (b.status === 'amb' && b.ambDest === 'stadio') toBay(b, 'garage');
     if (b.status === 'amb') {
       const h = shops.find(x => x.type === 'hosp');
       if (b.ambDest === 'hosp' && !team.some(t => t.status === 'hosp')) {
@@ -2991,7 +3481,7 @@ function charge(b, dt, still) {
     b.chg = 0;
     return;
   }
-  const per = inGarage(b.x, b.y) ? 15 : 30;
+  const per = inGarage(b.x, b.y) ? (superBat ? 10 : 15) : 30; // in rimessa x2 (x3 dopo il colpo delle batterie)
   b.chg += dt;
   if (b.chg >= per) {
     b.chg -= per;
@@ -3059,8 +3549,10 @@ function park(p) {
   }
 }
 function nextAvail(from) {
+  const lock = missionLock(); // missione stadio: solo i 3 biker dentro
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
+    if (lock && !stad.three.includes(j)) continue;
     if (AVAIL(team[j].status)) return j;
   }
   return -1;
@@ -3111,7 +3603,7 @@ function switchBiker(home) {
   endNyx(team[active], 'NYX TORNA NOVA: I FEDELI SI DISPERDONO');
   const old = team[active];
   park(old);
-  if (home) sendHome(old);
+  if (home && !inMission(old)) sendHome(old);
   else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
   activate(n);
   sfx('switch');
@@ -3139,6 +3631,26 @@ function defeat() {
     p.outR = 'ARRESTATO';
     p.outT = 3600;
     msg(p.name + ' ARRESTATO! FUORI GIOCO 1 ORA', '#3a7bff');
+  } else if (p.lastSrc === 'xeno' && inMission(p)) {
+    // missione stadio: rapito al 100%, lo Xeno resta nello stadio e la moto resta li'
+    let cap = enemies.find(e => e.id === p.lastE && !e.dead),
+      bd = 1e9;
+    if (!cap)
+      for (const e of enemies) {
+        const d = dist(e.x, e.y, pb.x, pb.y) + (e.stad ? 0 : 5000);
+        if (!e.dead && d < bd) {
+          bd = d;
+          cap = e;
+        }
+      }
+    p.status = 'captured';
+    p.captor = cap ? cap.id : 0;
+    p.capT = 1800;
+    p.onFoot = false;
+    p.v = 0;
+    p.walkPath = null;
+    msg(p.name + ' RAPITO NELLO STADIO!', '#ff3df2');
+    return leaveActive();
   } else if (p.lastSrc === 'xeno') {
     let cap = enemies.find(e => e.id === p.lastE && !e.dead);
     if (!cap) {
@@ -3173,7 +3685,12 @@ function defeat() {
 }
 function freeCaptives(e) {
   for (const t of team)
-    if (t.status === 'captured' && t.captor === e.id) {
+    if (t.status === 'captured' && t.captor === e.id && inMission(t)) {
+      t.status = 'idle'; // missione stadio: torna a combattere dalla sua moto
+      t.hp = Math.max(t.hp, 25);
+      t.waitT = 0;
+      msg(t.name + ' LIBERATO! TORNA A COMBATTERE', t.ui);
+    } else if (t.status === 'captured' && t.captor === e.id) {
       t.status = 'garage';
       t.hp = Math.max(t.hp, 25);
       toBay(t);
@@ -3204,6 +3721,7 @@ function damageEnemy(e, d) {
   if (e.hp <= 0) {
     e.dead = true;
     kills++;
+    if (e.stad && missionLock()) stad.killed++;
     boom(b.x, b.y);
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);
@@ -3386,11 +3904,11 @@ const nearIdle = (i, s) => team[i] && team[i].status === 'idle' && dist(team[i].
 // ---------- negozi ed edifici speciali: tabella dati {hint, use} ----------
 // hint(p,s) -> testo dell'azione; se inizia con '!' e' solo un avviso (senza tasto davanti)
 const arrested = () => team.filter(t => t.status === 'out' && t.outR === 'ARRESTATO');
-// compagno per l'allenamento in armeria: due biker qualsiasi tranne i leader (Zephyr e Vesper)
+// compagno per l'allenamento in armeria: due biker qualsiasi, purche' arrivino in coppia
 function trainMate(p, s) {
-  if (!p || isLeader(p.i)) return null;
+  if (!p) return null;
   for (const t of team) {
-    if (t === p || isLeader(t.i)) continue;
+    if (t === p) continue;
     if (nearIdle(t.i, s) && !(trained.includes(p.i) && trained.includes(t.i))) return t;
   }
   return null;
@@ -3410,9 +3928,15 @@ const SHOP_ACT = {
     },
   },
   mech: {
-    hint: () => 'ELETTRONITRO 50$',
+    hint(p, s) {
+      // Melanie a piedi ruba le batterie, in moto compra il nitro
+      if (p && p.i === MELANIE && !superBat)
+        return p.onFoot ? heistHint(s) : 'ELETTRONITRO 50$ (A PIEDI: RUBA LE BATTERIE)';
+      return 'ELETTRONITRO 50$';
+    },
     use(p, s, b) {
-      if (p.nitro >= 5) msg('MASSIMO 5 ELETTRONITRO', '#ffe03c');
+      if (p.i === MELANIE && p.onFoot && !superBat) stealBattery(p, s, b);
+      else if (p.nitro >= 5) msg('MASSIMO 5 ELETTRONITRO', '#ffe03c');
       else if (money < 50) msg('SERVONO 50$', '#ff4d6d');
       else {
         money -= 50;
@@ -3485,7 +4009,7 @@ const SHOP_ACT = {
               pickR(R, ['#ff6ec7', '#ffffff', '#ffe03c', '#3a7bff', '#e8384f']),
               2,
             );
-          msg('ZEPHYR E VESPER SONO SPOSI! LE LORO MOTO VANNO X1.2', '#ff6ec7');
+          msg('ZEPHYR E VESPER SONO SPOSI! TUTTE LE MOTO VANNO X1.2', '#ff6ec7');
         }
         return;
       }
@@ -3735,12 +4259,13 @@ function interact(p) {
     }
   }
   if (hit('recall')) {
-    if (!isLeader(p.i)) msg('SOLO ZEPHYR E VESPER POSSONO RICHIAMARE GLI ALTRI', '#7a6f99');
+    if (p.i === 2) caspianBlock(p);
+    else if (!isLeader(p.i)) msg('SOLO ZEPHYR E VESPER RICHIAMANO (CASPIAN: BLOCK)', '#7a6f99');
     else if (!inGarage(b.x, b.y)) msg(p.name + ' PUO RICHIAMARE SOLO DALLA RIMESSA', '#ffe03c');
     else {
       let n = 0;
       for (const t of team)
-        if (t.status === 'idle') {
+        if (t.status === 'idle' && !inMission(t)) {
           const pl = planReturn(t);
           if (pl) {
             t.path = pl.pts;
@@ -4088,7 +4613,18 @@ function ambAction(leg) {
       board(w, busy ? 'medbay' : 'hosp');
       msg("L'AUTO MEDICA CARICA " + w.name, '#ff4d6d');
     }
+  } else if (leg.act === 'stadium') {
+    for (const i of leg.list) {
+      const w = team[i];
+      if (w.status === 'waitamb') board(w, 'stadio');
+    }
+    msg("L'AUTO MEDICA CARICA I BIKER DELLO STADIO", '#ff4d6d');
   } else if (leg.act === 'garage') {
+    for (const b of amb.riders.filter(b => b.ambDest === 'stadio')) {
+      toBay(b, 'garage');
+      b.hp = Math.max(b.hp, 1);
+      msg(b.name + ' RIPORTATO IN RIMESSA DAL CENTRO ALIENI', b.ui);
+    }
     for (const b of amb.riders.filter(b => b.ambDest === 'medbay')) {
       b.status = 'medbay';
       b.px = garage.cx + (b.i - 2.5) * 10;
@@ -4182,10 +4718,13 @@ function missionTarget() {
   return shops[mission.carrier < 0 ? mission.from : mission.to];
 }
 function planReturn(b) {
-  const s = nearestNodeLOS(b.x, b.y);
+  // dallo stadio si esce dall'entrata piu' vicina
+  const g = inStadium(b.x, b.y) ? nearGate(b.x, b.y) : null;
+  const s = g ? nearestNodeLOS(g.ox, g.oy) : nearestNodeLOS(b.x, b.y);
   const path = dijkstra(s, garage.node);
   if (!path) return null;
   const pts = path.map(i => ({ x: nodes[i].x, y: nodes[i].y }));
+  if (g) pts.unshift({ x: g.ix, y: g.iy }, { x: g.gx, y: g.gy }, { x: g.ox, y: g.oy });
   pts.push({ x: garage.bays[b.i].x, y: garage.bays[b.i].y });
   let len = 0,
     px = b.x,
@@ -4212,8 +4751,9 @@ function updateMate(b, dt) {
       break;
     case 'idle':
       charge(b, dt, true);
-      if (!zephyrWaits(b)) b.waitT -= dt;
-      if (b.waitT <= 0) {
+      // BLOCK di Caspian e missione stadio: nessuno rientra da solo
+      if (!zephyrWaits(b) && !holdIdle(b)) b.waitT -= dt;
+      if (b.waitT <= 0 && !holdIdle(b)) {
         b.chkT -= dt;
         if (b.chkT <= 0) {
           b.chkT = 2;
@@ -4342,8 +4882,11 @@ function update(dt) {
   else if (pAvail && hit('switch')) switchBiker(shiftHeld());
   const pp = pAvail ? team[active] : null;
   if (pp) {
+    const b0 = { x: pp.x, y: pp.y, fx: pp.fx, fy: pp.fy };
     updatePlayer(pp, dt);
+    confineToStadium(pp, b0);
     if (state === 'play' && team[active] === pp && pp.status === 'active') interact(pp);
+    if (state === 'play' && team[active] === pp) checkStadiumStart(pp);
   }
   pAvail = state === 'play';
   const ap = pAvail ? team[active] : null;
@@ -4438,7 +4981,7 @@ function update(dt) {
     policeOp.t -= dt;
     if (policeOp.t <= 0) {
       policeOp.t = 12;
-      const live = enemies.filter(e => !e.dead && e.kind !== 'gold');
+      const live = enemies.filter(e => !e.dead && e.kind !== 'gold' && !e.stad);
       if (live.length) {
         const e = live[Math.floor(R() * live.length)];
         e.dead = true;
@@ -4512,9 +5055,10 @@ function update(dt) {
   if (respawnT <= 0) {
     respawnT = 60;
     // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
-    if (E < NIGHT && noSpawnT <= 0 && enemies.length < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
+    if (E < NIGHT && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
-  if (enemies.length >= 20) {
+  // gli Xeno della missione stadio non contano per quota 20
+  if (cityXeno() >= 20) {
     if (xenoFullT === null) {
       xenoFullT = 60;
       msg('20 XENO! 1 MINUTO PER ABBATTERNE UNO', '#ff4d6d');
@@ -4540,7 +5084,7 @@ function update(dt) {
     if (ap.hp <= 0) ap.lastSrc = 'nyx';
     if (!ceremony) {
       for (const e of enemies) {
-        if (e.follow || e.kind) continue;
+        if (e.follow || e.kind || e.stad) continue;
         const q = body(e);
         if (dist(q.x, q.y, pBody.x, pBody.y) < NYX_R) {
           e.follow = true;
@@ -4608,6 +5152,7 @@ function update(dt) {
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
   }
   if (ap && ap.hp <= 0) defeat();
+  updateStadium(dt);
   if (state === 'wait') {
     const n = nextAvail(active);
     if (n >= 0) {
@@ -4715,6 +5260,7 @@ function followMove(e, dt) {
   steerTo(e, tx, ty, spd, dt);
 }
 function updateEnemy(e, dt) {
+  if (e.stad && stadiumMove(e, dt)) return; // Xeno della missione stadio
   if (e.kind && specialMove(e, dt)) return; // Xeno Rosso / Silver / Gold
   if (e.follow && nyxOn()) {
     e.cd -= dt;
@@ -5099,6 +5645,7 @@ function recallCops(c, out, dt) {
 //  - radar avanzato di Akira (centro NASA)
 //  - SHIFT + cambia biker: il biker lasciato rientra in rimessa
 //  - menu a lista generico (radar avanzato, commissariato)
+//  - BLOCK di Caspian (R in rimessa), colpo delle batterie di Melanie (meccanici)
 // =====================================================================
 const NOVA = 5;
 const PXM = 8; // pixel per metro
@@ -5137,6 +5684,13 @@ const XK = {
     e: bikeSprite('#ffd21f', '#fff2a0', false, true),
   },
 };
+const BLOCK_T = 30 * 60, // BLOCK di Caspian: per 30 minuti nessuno rientra da solo
+  HEIST_T = 30 * 60, // Melanie: 30 minuti per rubare le batterie a tutti i meccanici
+  HEIST_HP = 50,
+  SUPER_BAT = 300; // batterie da 5 minuti per tutto il team
+let blockT = 0,
+  heist = null, // {t, done:[indici dei meccanici]}
+  superBat = false;
 let truceT = 0,
   truceCD = 0,
   advRadar = false,
@@ -5145,6 +5699,10 @@ let truceT = 0,
   listMenu = null,
   specT = 0;
 function resetSpecial() {
+  blockT = 0;
+  heist = null;
+  superBat = false;
+  BAT_MAX = 180;
   truceT = 0;
   truceCD = 0;
   advRadar = false;
@@ -5374,6 +5932,7 @@ function startTruce(p, s) {
   sfx('nitro');
   msg('NOVA DIVENTA NYX E PROCLAMA LA TREGUA: 15 MIN SENZA ATTACCHI', '#ff3df2');
   msg('NOVA RESTA AL CENTRO ALIENI CON 1 DI VITA', '#b48cff');
+  truceHostages();
   leaveActive();
 }
 function endTruce() {
@@ -5653,8 +6212,68 @@ function sendHome(b) {
   b.waitCharge = false;
   msg(b.name + ' RIENTRA IN RIMESSA' + (b.bat < pl.len / speedOf(b) ? ' (BATTERIA NON BASTA, SI FERMERA)' : ''), b.ui);
 }
+// ---------- BLOCK di Caspian (R dalla rimessa) ----------
+function caspianBlock(p) {
+  const b = body(p);
+  if (!inGarage(b.x, b.y)) return msg('CASPIAN PUO DARE IL BLOCK SOLO DALLA RIMESSA', '#ffe03c');
+  if (blockT > 0) {
+    blockT = 0;
+    sfx('mount');
+    return msg('BLOCK ANNULLATO: I BIKER TORNANO A RIENTRARE DA SOLI', '#f2f2f2');
+  }
+  blockT = BLOCK_T;
+  sfx('switch');
+  msg('BLOCK! PER 30 MIN NESSUN BIKER RIENTRA DA SOLO IN RIMESSA', '#f2f2f2');
+}
+// ---------- Melanie: colpo delle batterie ai meccanici ----------
+const mechCount = () => shops.filter(s => s.type === 'mech').length;
+function heistHint(s) {
+  if (heist && heist.done.includes(s.i)) return '!BATTERIE GIA RUBATE QUI (' + heist.done.length + '/' + mechCount() + ')';
+  return 'RUBA LE BATTERIE -' + HEIST_HP + ' VITA (' + (heist ? heist.done.length : 0) + '/' + mechCount() + ')';
+}
+function stealBattery(p, s, b) {
+  if (heist && heist.done.includes(s.i)) return msg('LE BATTERIE DI QUESTO MECCANICO SONO GIA TUE', '#ffe03c');
+  if (!heist) {
+    heist = { t: HEIST_T, done: [] };
+    msg('COLPO DELLE BATTERIE: 30 MIN PER RAPINARE TUTTI I MECCANICI', '#ffd21f');
+  }
+  heist.done.push(s.i);
+  const n = heist.done.length,
+    tot = mechCount();
+  sfx('sneak');
+  sfx('cash');
+  pop(b.x, b.y - 24, 'BATTERIE ' + n + '/' + tot, '#ffd21f');
+  p.hp -= HEIST_HP;
+  p.lastSrc = 'shop';
+  hurt = 0.25;
+  shake = Math.max(shake, 3);
+  sfx('hurt');
+  msg('MELANIE RUBA LE BATTERIE (' + n + '/' + tot + '): -' + HEIST_HP + ' VITA', '#ffd21f');
+  if (n >= tot) {
+    heist = null;
+    superBat = true;
+    BAT_MAX = SUPER_BAT;
+    for (const t of team) t.bat = Math.min(BAT_MAX, t.bat + (SUPER_BAT - 180));
+    sfx('nitro');
+    msg('TUTTI I MECCANICI RAPINATI! BATTERIE DA 5 MIN E RICARICA X3 IN RIMESSA', '#3cf2ff');
+  }
+}
 // ---------- aggiornamento (chiamato da update) ----------
 function updateSpecial(dt) {
+  if (blockT > 0) {
+    blockT -= dt;
+    if (blockT <= 0) {
+      blockT = 0;
+      msg('BLOCK FINITO: I BIKER RIENTRANO DI NUOVO DA SOLI', '#f2f2f2');
+    }
+  }
+  if (heist) {
+    heist.t -= dt;
+    if (heist.t <= 0) {
+      msg('COLPO DELLE BATTERIE FALLITO: 30 MINUTI SCADUTI (' + heist.done.length + '/' + mechCount() + ')', '#ff4d6d');
+      heist = null;
+    }
+  }
   truceCD = Math.max(0, truceCD - dt);
   if (truceT > 0) {
     truceT -= dt;
@@ -5721,6 +6340,418 @@ function drawListMenu() {
     txt(it.t, 126, yy, it.c || '#ffffff');
   });
   txt(KM('ok') + ' SCEGLI   -   ' + KM('back') + ' CHIUDI', VW / 2, y0 + h - 12, '#7a6f99', 1, 'center');
+}
+
+</script>
+<script>
+// ===== js/stadium.js =====
+'use strict';
+// =====================================================================
+//  STADIO DI BASEBALL: la missione dell'assedio
+//  - 3 biker dentro lo stadio (dalle 20:00, dalle 00:00, dalle 05:00; max 3 volte)
+//  - 12 Xeno assediano lo stadio ed entrano dalle 3 entrate
+//  - si gioca solo con i 3 biker dentro; a 0 di vita si e' rapiti al 100%
+//  - esiti: tutti abbattuti / almeno 9 / almeno 6 / meno di 6
+//  - la tregua di Nova libera gli ostaggi, che restano prigionieri nello stadio 1 ora
+// =====================================================================
+const STAD_OPEN = [2 * 3600, 6 * 3600, 11 * 3600], // 20:00, 00:00, 05:00
+  STAD_N = 12,
+  STAD_SIEGE = 40, // secondi di assedio prima dell'assalto
+  STAD_ESCORT = 180; // meno di 6 abbattuti: 3 minuti per liberare gli ostaggi
+let stad = null, // {phase:'siege'|'fight'|'ransom', t, three, killed, hostages, hold, bonus}
+  stadRuns = 0,
+  stadWarnT = 0;
+function resetStadium() {
+  stad = null;
+  stadRuns = 0;
+  stadWarnT = 0;
+}
+// durante assedio e combattimento si gioca solo con i 3 biker dello stadio
+const missionLock = () => !!stad && (stad.phase === 'siege' || stad.phase === 'fight');
+const inMission = b => missionLock() && stad.three.includes(b.i);
+// biker fermi che non rientrano da soli: BLOCK di Caspian o biker della missione
+const holdIdle = b => blockT > 0 || inMission(b);
+const cityXeno = () => enemies.reduce((n, e) => n + (e.stad ? 0 : 1), 0);
+const stadXeno = () => enemies.reduce((n, e) => n + (e.stad && !e.dead ? 1 : 0), 0);
+const stadNext = () => (stadRuns < STAD_OPEN.length ? STAD_OPEN[stadRuns] : null);
+
+// ---------- avvio ----------
+function checkStadiumStart(p) {
+  if (stad || !p || p.status !== 'active' || p.inCar) return;
+  const pb = body(p);
+  if (!inStadium(pb.x, pb.y)) return;
+  const nt = stadNext();
+  if (nt === null || meta.gameT < nt) return;
+  const mates = team
+    .filter(t => t !== p && t.status === 'idle' && inStadium(t.x, t.y))
+    .sort((a, b) => dist(a.x, a.y, pb.x, pb.y) - dist(b.x, b.y, pb.x, pb.y));
+  if (mates.length < 2) return;
+  startStadium(p, mates.slice(0, 2));
+}
+function startStadium(p, mates) {
+  endNyx(p, '');
+  stadRuns++;
+  stad = { phase: 'siege', t: STAD_SIEGE, three: [p.i, ...mates.map(m => m.i)], killed: 0 };
+  for (const m of mates) m.waitT = 0;
+  for (let k = 0; k < STAD_N; k++) {
+    let n = null;
+    for (let t = 0; t < 80; t++) {
+      const c = nodes[Math.floor(R() * nodes.length)];
+      const d = dist(c.x, c.y, stadium.cx, stadium.cy);
+      if (d > 350 && d < 900) {
+        n = c;
+        break;
+      }
+    }
+    if (!n) n = nodes[Math.floor(R() * nodes.length)];
+    const e = addEnemy(Math.floor(R() * NB), n.x, n.y, 25, nextEid++);
+    e.stad = 1;
+    e.sg = k % 3;
+    e.slot = Math.floor(k / 3);
+    e.sm = 'siege';
+    e.wi = 0;
+  }
+  fx.push({ k: 'flash', x: stadium.cx, y: stadium.cy, t: 0, dur: 1, r: 160, c: '#ff2b4a' });
+  sfx('alert');
+  sfx('siren');
+  msg('MISSIONE STADIO ' + stadRuns + '/3: 12 XENO ASSEDIANO LO STADIO!', '#ff4d6d');
+  msg('SI COMBATTE SOLO CON ' + stad.three.map(i => team[i].name).join(', '), '#9fd4ff');
+}
+
+// ---------- movimento degli Xeno dello stadio (true = gestito qui) ----------
+function siegeSpot(e) {
+  const g = stadium.gates[e.sg],
+    off = (e.slot - 1.5) * 13;
+  // ovest/est: in fila lungo la strada verticale; nord: lungo la strada orizzontale
+  if (e.sg === 1) return [g.ox + off, g.oy - (e.slot % 2) * 10];
+  return [g.ox + (e.sg === 0 ? -1 : 1) * (e.slot % 2) * 10, g.oy + off];
+}
+function stadiumMove(e, dt) {
+  const g = stadium.gates[e.sg] || stadium.gates[0],
+    spd = xenoSpd(e);
+  const tick = () => {
+    e.cd -= dt;
+    e.hitT -= dt;
+    e.punchT -= dt;
+    e.onFoot = false;
+    e.lchg = 0;
+  };
+  if (e.sm === 'siege') {
+    tick();
+    const [tx, ty] = siegeSpot(e);
+    if (navTo(e, tx, ty, spd, dt) && dist(e.x, e.y, tx, ty) < 26) e.ready = true;
+    return true;
+  }
+  if (e.sm === 'enter' || e.sm === 'exit') {
+    tick();
+    const wp =
+      e.sm === 'enter'
+        ? [
+            [g.ox, g.oy],
+            [g.gx, g.gy],
+            [g.ix, g.iy],
+          ]
+        : [
+            [g.ix, g.iy],
+            [g.gx, g.gy],
+            [g.ox, g.oy],
+          ];
+    const q = wp[e.wi || 0];
+    if (e.sm === 'enter' && e.wi === 0 && !los(e.x, e.y, q[0], q[1])) {
+      navTo(e, q[0], q[1], spd, dt);
+      return true;
+    }
+    steerTo(e, q[0], q[1], spd, dt);
+    if (dist(e.x, e.y, q[0], q[1]) < 14) {
+      e.wi = (e.wi || 0) + 1;
+      if (e.wi >= wp.length) {
+        if (e.sm === 'enter') {
+          e.sm = 'in';
+          e.state = 'chase';
+          e.lock = 0;
+        } else {
+          // fuori dallo stadio con l'ostaggio: torna uno Xeno normale
+          e.stad = 0;
+          e.sm = null;
+          e.state = 'wander';
+          e.tn = -1;
+        }
+      }
+    }
+    return true;
+  }
+  // dentro: resta nello stadio e attacca solo chi c'e' dentro
+  if (!pAvail || truceOn() || !inStadium(pBody.x, pBody.y)) {
+    tick();
+    e.v *= Math.pow(0.85, dt * 60);
+    if (!inStadium(e.x, e.y)) steerTo(e, stadium.cx, stadium.cy, spd * 0.5, dt);
+    return true;
+  }
+  e.state = 'chase';
+  return false;
+}
+
+// ---------- aggiornamento ----------
+function updateStadium(dt) {
+  stadWarnT -= dt;
+  if (!stad) return;
+  if (stad.phase === 'siege') {
+    stad.t -= dt;
+    const sx = enemies.filter(e => e.stad && !e.dead);
+    if (stad.t <= 0 || sx.every(e => e.ready)) {
+      stad.phase = 'fight';
+      for (const e of sx)
+        if (e.sm === 'siege') {
+          e.sm = 'enter';
+          e.wi = 0;
+        }
+      msg('GLI XENO ENTRANO DA TUTTE LE ENTRATE!', '#ff4d6d');
+      sfx('alert');
+      shake = Math.max(shake, 3);
+    }
+  }
+  if (stad.phase === 'siege' || stad.phase === 'fight') {
+    if (!stadXeno()) return stadiumWin();
+    if (!stad.three.some(i => team[i].status === 'active' || team[i].status === 'idle')) return stadiumLost();
+    return;
+  }
+  if (stad.phase === 'ransom') {
+    stad.t -= dt;
+    const left = stad.hostages.filter(i => team[i].status === 'captured');
+    if (!left.length) {
+      const dead = stad.hostages.some(i => team[i].status === 'dead');
+      stad = null;
+      clearStadiumXeno(dead ? 'GLI OSTAGGI SONO MORTI: GLI XENO LASCIANO LO STADIO' : 'GLI XENO LASCIANO LO STADIO');
+      return;
+    }
+    for (const i of left) team[i].capT = Math.max(0.01, stad.t);
+    if (stad.t <= 0) {
+      for (const i of left) {
+        team[i].status = 'dead';
+        msg(team[i].name + ' E STATO UCCISO NELLO STADIO', '#ff4d6d');
+      }
+      stad = null;
+      clearStadiumXeno('NOVA NON E ARRIVATA: GLI XENO LASCIANO LO STADIO');
+      checkEnd();
+      return;
+    }
+    const p = pAvail ? team[active] : null;
+    if (p && p.i === NOVA && p.status === 'active' && !p.inCar && nearStadium(pBody.x, pBody.y, 56)) novaDeal(p);
+  }
+}
+// tutti i 12 Xeno abbattuti
+function stadiumWin() {
+  const list = stad.three.map(i => team[i]).filter(b => b.status === 'active' || b.status === 'idle');
+  stad = null;
+  msg('STADIO LIBERATO: 12 XENO ABBATTUTI!', ACID);
+  alienReport(2000);
+  stadiumAmbulance(list);
+}
+// nessuno dei 3 biker e' piu' disponibile
+function stadiumLost() {
+  const hostages = stad.three.filter(i => team[i].status === 'captured'),
+    k = stad.killed;
+  const live = enemies.filter(e => e.stad && !e.dead);
+  if (!hostages.length) {
+    stad = null;
+    clearStadiumXeno('MISSIONE STADIO FALLITA: GLI XENO LASCIANO LO STADIO');
+    return;
+  }
+  if (k >= 6) {
+    const nine = k >= 9;
+    stad = {
+      phase: 'ransom',
+      t: nine ? 600 : 300,
+      hold: nine ? 3600 : 7200,
+      bonus: nine ? 1000 : 0,
+      hostages,
+      three: stad.three,
+      killed: k,
+    };
+    for (const i of hostages) team[i].capT = stad.t;
+    if (hostages.includes(NOVA)) {
+      msg('NOVA E TRA GLI OSTAGGI: SI OFFRE AL POSTO DEGLI ALTRI', '#ff6ec7');
+      novaDeal(team[NOVA]);
+      return;
+    }
+    sfx('alert');
+    msg(k + ' XENO ABBATTUTI: GLI XENO VOGLIONO NOVA COME OSTAGGIO', '#ff6ec7');
+    msg('NOVA DEVE ARRIVARE ALLO STADIO ENTRO ' + fmt(stad.t) + ' O GLI OSTAGGI MUOIONO', '#ff4d6d');
+    return;
+  }
+  // meno di 6: 3 Xeno escono con gli ostaggi, gli altri si fondono in 2 Xeno Rossi
+  const esc = [];
+  for (const i of hostages) {
+    const t = team[i];
+    let e = live.find(x => x.id === t.captor && !esc.includes(x)) || live.find(x => !esc.includes(x));
+    if (!e) break;
+    esc.push(e);
+    t.captor = e.id;
+    t.capT = STAD_ESCORT;
+  }
+  while (esc.length < 3 && live.some(x => !esc.includes(x))) esc.push(live.find(x => !esc.includes(x)));
+  for (const e of esc) {
+    e.sg = stadium.gates.indexOf(nearGate(e.x, e.y));
+    e.sm = 'exit';
+    e.wi = 0;
+    e.onFoot = false;
+  }
+  for (const e of live)
+    if (!esc.includes(e)) {
+      e.dead = true;
+      spark(e.x, e.y, XK.red.c, 10, 80);
+    }
+  for (const gi of [0, 2]) {
+    const g = stadium.gates[gi];
+    makeSpecial(addEnemy(Math.floor(R() * NB), g.ox, g.oy, XK.red.hp, nextEid++), 'red');
+  }
+  fx.push({ k: 'flash', x: stadium.cx, y: stadium.cy, t: 0, dur: 0.8, r: 120, c: XK.red.c });
+  sfx('boom');
+  stad = null;
+  msg('3 XENO ESCONO DALLO STADIO CON GLI OSTAGGI: 3 MIN PER LIBERARLI!', '#ff3df2');
+  msg('GLI ALTRI XENO SI FONDONO IN 2 XENO ROSSI', XK.red.c);
+}
+// Nova si consegna: gli ostaggi tornano in rimessa con l'auto medica, lei resta nello stadio
+function novaDeal(n) {
+  const S = stad;
+  const wasActive = n === team[active] && n.status === 'active';
+  if (n.inCar) exitCar(n, false);
+  endNyx(n, '');
+  const freed = S.hostages.filter(i => i !== NOVA && team[i].status === 'captured').map(i => team[i]);
+  for (const b of freed) b.captor = 0;
+  n.status = 'out';
+  n.outR = 'OSTAGGIO';
+  n.outT = S.hold;
+  n.captor = 0;
+  n.medOn = false;
+  n.onFoot = false;
+  n.walkPath = null;
+  n.path = null;
+  n.v = 0;
+  n.nitroT = 0;
+  n.x = stadium.cx;
+  n.y = stadium.cy + 20;
+  n.a = -Math.PI / 2;
+  stad = null;
+  clearStadiumXeno('');
+  fx.push({ k: 'flash', x: stadium.cx, y: stadium.cy, t: 0, dur: 1, r: 120, c: '#ff6ec7' });
+  sfx('switch');
+  msg('NOVA RESTA IN OSTAGGIO NELLO STADIO PER ' + (S.hold >= 7200 ? '2 ORE' : '1 ORA'), '#ff6ec7');
+  alienReport(S.bonus);
+  if (freed.length) stadiumAmbulance(freed);
+  if (wasActive) leaveActive();
+}
+// gli Xeno rimasti nello stadio se ne vanno (non quelli che escono con gli ostaggi)
+function clearStadiumXeno(why) {
+  for (const e of enemies)
+    if (e.stad && e.sm !== 'exit' && !e.dead) {
+      e.dead = true;
+      freeCaptives(e);
+      spark(e.x, e.y, ACID, 8, 60);
+    }
+  if (why) msg(why, '#c6ff3a');
+}
+// premio "come il rapporto al centro alieni" + bonus
+function alienReport(bonus) {
+  const n = Math.max(0, kills - alienMark);
+  alienMark = kills;
+  const g = n * 25 + bonus;
+  money += g;
+  sfx('cash');
+  msg('CENTRO ALIENI: ' + n + ' XENO = ' + n * 25 + '$' + (bonus ? ' + ' + bonus + '$' : ''), '#c6ff3a');
+  if (n >= 10) {
+    garageMeds += 3;
+    garageAutoMed();
+    msg('3 FARMACI ALLA RIMESSA', '#5cff7a');
+  }
+}
+// l'auto medica del centro alieni passa dallo stadio e riporta i biker (con le moto) in rimessa
+function stadiumAmbulance(list) {
+  if (!list.length) return;
+  const al = shops.find(s => s.type === 'alien');
+  let ga = stadium.gates[0],
+    bd = 1e9;
+  for (const g of stadium.gates) {
+    const d = al ? dist(g.ox, g.oy, al.x, al.y) : 0;
+    if (d < bd) {
+      bd = d;
+      ga = g;
+    }
+  }
+  const wasActive = list.includes(team[active]) && team[active].status === 'active';
+  for (const b of list) {
+    if (b.inCar) exitCar(b, false);
+    b.status = 'waitamb';
+    b.path = null;
+    b.walkPath = null;
+    b.onFoot = false;
+    b.v = 0;
+    b.nitroT = 0;
+  }
+  const legs = [
+    { x: ga.ox, y: ga.oy, act: 'stadium', list: list.map(b => b.i) },
+    { x: garage.cx, y: garage.cy, act: 'garage', w: -1 },
+  ];
+  if (amb) amb.legs.push(...legs);
+  else amb = { x: al ? al.x : ga.ox, y: al ? al.y : ga.oy, a: 0, legs, li: 0, path: null, pi: 0, riders: [] };
+  msg("IL CENTRO ALIENI MANDA L'AUTO MEDICA ALLO STADIO", '#ff4d6d');
+  sfx('siren');
+  if (wasActive) leaveActive();
+}
+// tregua di Nova: chi e' rapito viene liberato ma resta prigioniero nello stadio per 1 ora
+function truceHostages() {
+  const list = team.filter(t => t.status === 'captured');
+  list.forEach((t, k) => {
+    t.status = 'out';
+    t.outR = 'PRIGIONIERO';
+    t.outT = 3600;
+    t.captor = 0;
+    t.medOn = false;
+    t.onFoot = false;
+    t.path = null;
+    t.v = 0;
+    t.x = stadium.cx + (k - (list.length - 1) / 2) * 22;
+    t.y = stadium.cy + 30;
+    t.a = -Math.PI / 2;
+  });
+  if (list.length)
+    msg(
+      'TREGUA: ' + list.map(t => t.name).join(', ') + ' LIBERATI MA PRIGIONIERI NELLO STADIO PER 1 ORA',
+      '#c6ff3a',
+    );
+  if (stad && stad.phase === 'ransom') {
+    stad = null;
+    clearStadiumXeno('');
+  }
+}
+// i biker della missione non possono uscire dallo stadio
+function confineToStadium(p, b0) {
+  if (!inMission(p) || p.status !== 'active' || p.inCar) return;
+  let out = false;
+  if (!inStadium(p.x, p.y)) {
+    p.x = b0.x;
+    p.y = b0.y;
+    p.v *= -0.3;
+    out = true;
+  }
+  if (p.onFoot && !inStadium(p.fx, p.fy)) {
+    p.fx = b0.fx;
+    p.fy = b0.fy;
+    out = true;
+  }
+  if (out && stadWarnT <= 0) {
+    stadWarnT = 3;
+    msg('NON PUOI LASCIARE LO STADIO DURANTE LA MISSIONE', '#ff4d6d');
+  }
+}
+// avviso quando si e' dentro lo stadio senza missione
+function stadiumHint(pb) {
+  if (stad || !inStadium(pb.x, pb.y)) return null;
+  const nt = stadNext();
+  if (nt === null) return ['STADIO: MISSIONI FINITE (3/3)', '#7a6f99'];
+  if (meta.gameT < nt) return ['STADIO: PROSSIMA MISSIONE ALLE ' + hhmm(nt), '#9fd4ff'];
+  const n = 1 + team.filter(t => t.status === 'idle' && inStadium(t.x, t.y)).length;
+  return ['STADIO: SERVONO 3 BIKER DENTRO (' + Math.min(3, n) + '/3)', '#9fd4ff'];
 }
 
 </script>
@@ -6200,6 +7231,22 @@ function drawLights(ox, oy, X0, Y0, X1, Y1, playing) {
       const L = s.L;
       lglow((L.x + L.w / 2) * CELL, (L.y + L.h / 2) * CELL, 60, '#7a2bff', 0.4);
     }
+  // fari dello stadio e maxischermi di Times Square
+  const near = (x, y, m) => x > X0 - m && x < X1 + m && y > Y0 - m && y < Y1 + m;
+  for (const l of stadium.lights) if (near(l.x, l.y, 160)) lglow(l.x, l.y, 170, '#fff3d0', stad ? 0.75 : 0.5);
+  if (stad && near(stadium.cx, stadium.cy, 200))
+    lglow(stadium.cx, stadium.cy, 190, '#ff2b4a', blink(2) ? 0.35 : 0.15);
+  for (const m of landmarks)
+    if (m.name === 'TIMES SQUARE' && near(m.x, m.y, 260)) {
+      const b = m.b;
+      for (let k = 0; k < 4; k++) {
+        const x = (b.x + 2 + ((b.w - 4) * (k + 0.5)) / 4) * CELL;
+        const c = NEON[(Math.floor(T * 0.7) + k * 2) % NEON.length];
+        lglow(x, (b.y + 5) * CELL, 70, c, 0.55);
+        lglow(x, (b.y + b.h - 5) * CELL, 70, NEON[(Math.floor(T * 0.7) + k * 2 + 3) % NEON.length], 0.55);
+      }
+      lglow(m.x, m.y, 150, '#ffe9d0', 0.3);
+    }
   const car = o => {
     if (!vis(o.x, o.y)) return;
     lcone(o, 0.75);
@@ -6327,7 +7374,9 @@ function drawWorld(cx, cy, dt) {
     drawVeh(empty ? b.sprE : b.spr, b.x, b.y, b.a);
     if (b.status === 'idle') {
       lab(b.name, b.x, b.y - 18, b.ui);
-      lab(b.waitT > 0 ? fmt(b.waitT) : 'IN CARICA', b.x, b.y + 9, '#ffe03c');
+      if (inMission(b)) lab('STADIO', b.x, b.y + 9, '#9fd4ff');
+      else if (blockT > 0) lab('BLOCK', b.x, b.y + 9, '#f2f2f2');
+      else lab(b.waitT > 0 ? fmt(b.waitT) : 'IN CARICA', b.x, b.y + 9, '#ffe03c');
     } else if (b.status === 'returning') lab(b.name, b.x, b.y - 18, b.ui);
     else if (b.status === 'robbing') {
       lab(b.name, b.x, b.y - 18, b.ui);
@@ -6599,6 +7648,8 @@ function drawWorld(cx, cy, dt) {
       if (s.anger > 0 && d < 24) lab('RABBIA ' + s.anger, s.x, s.y + 10, '#ff4d6d');
     }
   });
+  for (const m of landmarks)
+    if (vis(m.x, m.y) || dist(m.x, m.y, cx, cy) < 360) lab(m.name, m.x, m.b.y * CELL + 4, m.c);
   if (playing) {
     const pb = body(team[active]);
     if (blink(4)) {
@@ -6708,6 +7759,8 @@ function statusTxt(b) {
     case 'garage':
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
+      if (inMission(b)) return ['NELLO STADIO', '#9fd4ff'];
+      if (blockT > 0) return ['FERMO (BLOCK)', '#f2f2f2'];
       return [b.waitT > 0 ? 'FERMO ' + fmt(b.waitT) : 'ATTENDE CARICA', '#ffe03c'];
     case 'returning':
       return ['RIENTRO', '#ff9de6'];
@@ -6746,6 +7799,8 @@ function statusShort(b) {
     case 'garage':
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
+      if (inMission(b)) return ['STADIO', '#9fd4ff'];
+      if (blockT > 0) return ['BLOCK', '#f2f2f2'];
       return [b.waitT > 0 ? 'STOP ' + fmt(b.waitT) : 'CARICA', '#ffe03c'];
     case 'returning':
       return ['RIENTRO', '#ff9de6'];
@@ -6761,7 +7816,9 @@ function statusShort(b) {
       return ['OSP ' + pc, '#ff4d6d'];
     case 'out':
       return [
-        ({ ARRESTATO: 'ARR ', FERITO: 'FER ', FUGGITO: 'FUGA ', ESAUSTA: 'KO ' }[b.outR] || 'OUT ') + shortT(b.outT),
+        ({ ARRESTATO: 'ARR ', FERITO: 'FER ', FUGGITO: 'FUGA ', ESAUSTA: 'KO ', OSTAGGIO: 'OST ', PRIGIONIERO: 'PRIG ' }[
+          b.outR
+        ] || 'OUT ') + shortT(b.outT),
         b.outR === 'ARRESTATO' ? '#3a7bff' : '#ff4d6d',
       ];
     case 'captured':
@@ -6785,10 +7842,11 @@ function drawTopBar() {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
   }
-  const xn = enemies.length,
+  const xn = cityXeno(),
+    xs = enemies.length - xn,
     xc = xn >= 16 ? '#ff4d6d' : xn >= 10 ? '#ffb03c' : ACID;
   icon('skull', 280, 8, xc);
-  txt('XENO ' + xn + '/20', 290, 8, xc);
+  txt('XENO ' + xn + '/20' + (xs ? ' +' + xs : ''), 290, 8, xc);
   bar(280, 18, 96, 4, xn / 20, xc);
   txt(
     E >= NIGHT ? 'ALBA: NIENTE RINFORZI' : noSpawnT > 0 ? 'CHIESA STOP ' + fmt(noSpawnT) : 'RINFORZO ' + fmt(respawnT),
@@ -6865,10 +7923,10 @@ function drawHUD() {
   txt(fmt(p.bat), 196, 36, lowB ? '#ff4d6d' : '#ffffff', 1, 'right');
   const still = p.onFoot || Math.abs(p.v) < 4,
     gar = inGarage(p.x, p.y),
-    per = gar ? 15 : 30;
+    per = gar ? (superBat ? 10 : 15) : 30;
   icon('sun', 9, 37, '#ffe03c');
   bar(18, 40, 16, 3, still && p.bat < BAT_MAX ? p.chg / per : 0, '#ffe03c');
-  if (gar) txt('X2', 10, 47, '#ff3df2');
+  if (gar) txt(superBat ? 'X3' : 'X2', 10, 47, '#ff3df2');
   if (p.medOn && blink(2)) txt('+', 26, 47, '#5cff7a');
   let line,
     lc = '#c9c2e6';
@@ -6917,6 +7975,9 @@ function drawHUD() {
   } else if (isLeader(p.i) && inGarage(pb.x, pb.y)) {
     sp = K('recall') + ': RICHIAMA TUTTI IN RIMESSA';
     sc = p.ui;
+  } else if (p.i === 2 && inGarage(pb.x, pb.y)) {
+    sp = K('recall') + (blockT > 0 ? ': ANNULLA IL BLOCK ' + fmt(blockT) : ': BLOCK 30 MIN (NESSUNO RIENTRA)');
+    sc = '#f2f2f2';
   }
   if (sp) txt(sp, 38, 68, sc);
   drawTopBar();
@@ -6968,6 +8029,7 @@ function drawHUD() {
     }
   }
   if (capE) needle(Math.atan2(capE.y - pb.y, capE.x - pb.x), '#ff3df2', 14);
+  if (stad && stad.phase === 'ransom') needle(Math.atan2(stadium.cy - pb.y, stadium.cx - pb.x), '#ff6ec7', 18);
   const gold = enemies.find(e => e.kind === 'gold');
   if (gold) needle(Math.atan2(gold.y - pb.y, gold.x - pb.x), XK.gold.c, 16);
   if (ne) {
@@ -7057,6 +8119,7 @@ function drawHUD() {
   for (const c of police)
     mark(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : blink(6) ? '#ff2b4a' : '#2b6bff', 2, false);
   mark(garage.cx, garage.cy, blink(2) ? '#ff3df2' : '#ffffff', 4);
+  if (stad) mark(stadium.cx, stadium.cy, blink(3) ? '#ff2b4a' : '#ff6ec7', 4);
   for (const b of team) if (b.i !== active && AVAIL(b.status)) mark(b.x, b.y, b.ui, 2);
   if (capE && blink(3)) mark(capE.x, capE.y, '#ff3df2', 3);
   for (const e of enemies) if (e.kind) mark(e.x, e.y, XK[e.kind].c, 3, e.kind !== 'gold');
@@ -7083,6 +8146,33 @@ function drawHUD() {
   }
   if (truceOn()) {
     strip('TREGUA DI NYX ' + fmt(truceT) + ' - NESSUNO ATTACCA', AX, ay, '#c6ff3a');
+    ay += 12;
+  }
+  if (stad) {
+    const t =
+      stad.phase === 'siege'
+        ? ['12 XENO ASSEDIANO LO STADIO: ENTRANO TRA ' + fmt(stad.t), blink(2) ? '#ff4d6d' : '#ffffff']
+        : stad.phase === 'fight'
+          ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
+          : [
+              'OSTAGGI NELLO STADIO: NOVA ENTRO ' + fmt(stad.t) + ' (' + Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) + 'M)',
+              blink(2) ? '#ff6ec7' : '#ffffff',
+            ];
+    strip(t[0], AX, ay, t[1]);
+    ay += 12;
+  } else {
+    const h = stadiumHint(pb);
+    if (h) {
+      strip(h[0], AX, ay, h[1]);
+      ay += 12;
+    }
+  }
+  if (blockT > 0) {
+    strip('BLOCK DI CASPIAN ' + fmt(blockT) + ' - NESSUNO RIENTRA DA SOLO', AX, ay, '#f2f2f2');
+    ay += 12;
+  }
+  if (heist) {
+    strip('COLPO BATTERIE ' + heist.done.length + '/' + mechCount() + ' - ' + fmt(heist.t), AX, ay, '#ffd21f');
     ay += 12;
   }
   for (const e of enemies) {
@@ -7233,6 +8323,12 @@ function drawBigMap() {
       if (e) dot(e.x, e.y, '#ff3df2', 4);
     } else if (t.status !== 'dead' && t.i !== active) dot(t.x, t.y, t.ui, 3);
   }
+  for (const m of landmarks) {
+    const [a, b2] = P(m.x, m.y);
+    // parco e piazza sono vicini alla rimessa: etichette sfalsate
+    txt(m.name, a, b2 + (m.name === 'TIMES SQUARE' ? -13 : m.name === 'CENTRAL PARK' ? 13 : -3), m.c, 1, 'center');
+  }
+  if (stad && blink(3)) dot(stadium.cx, stadium.cy, '#ff2b4a', 7);
   dot(garage.cx, garage.cy, '#ff3df2', 6);
   {
     const [a, b] = P(garage.cx, garage.cy);
@@ -7516,8 +8612,8 @@ function drawPause() {
     ['OSPEDALE: RICOVERO GRATIS +10 VITA/MIN - UN BIKER ALLA VOLTA', '#ff4d6d'],
     ['NEGOZIO MOTO: 5000$ VELOCITA X1.6 PERMANENTE (CASPIAN X1.2) - ARMERIA: 10000$ SECONDA ARMA', '#ff6ec7'],
     ['OSPEDALE: 3 FARMACI DONATI DA 2 BIKER DIVERSI = +25 VITA MAX AL TEAM (FINO A 250)', '#5cff7a'],
-    ['CHIESA: ZEPHYR, POI VESPER = MATRIMONIO 10000$ (MOTO X1.2)', '#ff6ec7'],
-    ['ARMERIA: 2 BIKER QUALSIASI (NON ZEPHYR O VESPER) = ALLENAMENTO, +2 DANNI A ARMI E PUGNI', '#3fd46b'],
+    ['CHIESA: ZEPHYR, POI VESPER = MATRIMONIO 10000$ (TUTTE LE MOTO X1.2)', '#ff6ec7'],
+    ['ARMERIA: 2 BIKER QUALSIASI CHE ARRIVANO IN COPPIA = ALLENAMENTO, +2 DANNI A ARMI E PUGNI', '#3fd46b'],
     [
       'AKIRA: TIENI ' + K('attack') + ', LA MOTO SI FERMA E LA SPADA LASER CARICA 1S - COLPO MORTALE INTORNO',
       '#ff8a1f',
@@ -7531,7 +8627,10 @@ function drawPause() {
     ['CENTRO ALIENI (ZEPHYR/VESPER): 25$ PER XENO ABBATTUTO - 10+ XENO = AUTO MEDICA', '#c6ff3a'],
     ['MISSIONI: OGNI 15 MIN UN PACCO DA CONSEGNARE - 100$ (+50 OLTRE 75% MAPPA, +50 OLTRE 100%)', '#ffe03c'],
     ["UCCIDI I 2 AGENTI: RUBA L'AUTO (" + K('use') + ') E PORTALA IN RIMESSA = 200-400$', '#9fd4ff'],
-    ['RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA', '#7a6f99'],
+    [
+      'RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA - CASPIAN IN RIMESSA ' + K('recall') + ': BLOCK 30 MIN',
+      '#7a6f99',
+    ],
     ['SHIFT+' + K('switch') + ' (PAD L3): CAMBIA BIKER E FAI RIENTRARE IN RIMESSA QUELLO LASCIATO', '#c9c2e6'],
     [
       'AKIRA AL CENTRO NASA: RADAR AVANZATO 10000$ PER IL TEAM - ' + K('radar') + ' X3 = SCEGLI UN SOLO OBIETTIVO',
@@ -7541,7 +8640,9 @@ function drawPause() {
       'MELANIE AL COMMISSARIATO: LISTA RABBIA E RAPINALI TUTTI! (+2000$, RABBIA +1, VITA 1, RISCHIO ARRESTO)',
       '#ffd21f',
     ],
-    ['NOVA AL CENTRO ALIENI: NYX PROCLAMA LA TREGUA 15 MIN 5000$ (OGNI ORA) - XENO FERMI A 15', '#c6ff3a'],
+    ['NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA', '#c6ff3a'],
+    ['MELANIE DAL MECCANICO A PIEDI: RUBA BATTERIE -50 VITA - TUTTI IN 30 MIN: BATTERIE 5 MIN, RIMESSA X3', '#ffd21f'],
+    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO ASSEDIANO LO STADIO', '#9fd4ff'],
     ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
     ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];

@@ -15,7 +15,7 @@ const VW = 640,
   BL = 16;
 const WPX = MW * CELL,
   HPX = MH * CELL;
-const BAT_MAX = 180;
+let BAT_MAX = 180; // 300 (5 minuti) dopo il colpo delle batterie di Melanie
 let viewScale = 1;
 function fit() {
   const s = Math.min(innerWidth / VW, innerHeight / VH);

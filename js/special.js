@@ -7,6 +7,7 @@
 //  - radar avanzato di Akira (centro NASA)
 //  - SHIFT + cambia biker: il biker lasciato rientra in rimessa
 //  - menu a lista generico (radar avanzato, commissariato)
+//  - BLOCK di Caspian (R in rimessa), colpo delle batterie di Melanie (meccanici)
 // =====================================================================
 const NOVA = 5;
 const PXM = 8; // pixel per metro
@@ -45,6 +46,13 @@ const XK = {
     e: bikeSprite('#ffd21f', '#fff2a0', false, true),
   },
 };
+const BLOCK_T = 30 * 60, // BLOCK di Caspian: per 30 minuti nessuno rientra da solo
+  HEIST_T = 30 * 60, // Melanie: 30 minuti per rubare le batterie a tutti i meccanici
+  HEIST_HP = 50,
+  SUPER_BAT = 300; // batterie da 5 minuti per tutto il team
+let blockT = 0,
+  heist = null, // {t, done:[indici dei meccanici]}
+  superBat = false;
 let truceT = 0,
   truceCD = 0,
   advRadar = false,
@@ -53,6 +61,10 @@ let truceT = 0,
   listMenu = null,
   specT = 0;
 function resetSpecial() {
+  blockT = 0;
+  heist = null;
+  superBat = false;
+  BAT_MAX = 180;
   truceT = 0;
   truceCD = 0;
   advRadar = false;
@@ -282,6 +294,7 @@ function startTruce(p, s) {
   sfx('nitro');
   msg('NOVA DIVENTA NYX E PROCLAMA LA TREGUA: 15 MIN SENZA ATTACCHI', '#ff3df2');
   msg('NOVA RESTA AL CENTRO ALIENI CON 1 DI VITA', '#b48cff');
+  truceHostages();
   leaveActive();
 }
 function endTruce() {
@@ -561,8 +574,68 @@ function sendHome(b) {
   b.waitCharge = false;
   msg(b.name + ' RIENTRA IN RIMESSA' + (b.bat < pl.len / speedOf(b) ? ' (BATTERIA NON BASTA, SI FERMERA)' : ''), b.ui);
 }
+// ---------- BLOCK di Caspian (R dalla rimessa) ----------
+function caspianBlock(p) {
+  const b = body(p);
+  if (!inGarage(b.x, b.y)) return msg('CASPIAN PUO DARE IL BLOCK SOLO DALLA RIMESSA', '#ffe03c');
+  if (blockT > 0) {
+    blockT = 0;
+    sfx('mount');
+    return msg('BLOCK ANNULLATO: I BIKER TORNANO A RIENTRARE DA SOLI', '#f2f2f2');
+  }
+  blockT = BLOCK_T;
+  sfx('switch');
+  msg('BLOCK! PER 30 MIN NESSUN BIKER RIENTRA DA SOLO IN RIMESSA', '#f2f2f2');
+}
+// ---------- Melanie: colpo delle batterie ai meccanici ----------
+const mechCount = () => shops.filter(s => s.type === 'mech').length;
+function heistHint(s) {
+  if (heist && heist.done.includes(s.i)) return '!BATTERIE GIA RUBATE QUI (' + heist.done.length + '/' + mechCount() + ')';
+  return 'RUBA LE BATTERIE -' + HEIST_HP + ' VITA (' + (heist ? heist.done.length : 0) + '/' + mechCount() + ')';
+}
+function stealBattery(p, s, b) {
+  if (heist && heist.done.includes(s.i)) return msg('LE BATTERIE DI QUESTO MECCANICO SONO GIA TUE', '#ffe03c');
+  if (!heist) {
+    heist = { t: HEIST_T, done: [] };
+    msg('COLPO DELLE BATTERIE: 30 MIN PER RAPINARE TUTTI I MECCANICI', '#ffd21f');
+  }
+  heist.done.push(s.i);
+  const n = heist.done.length,
+    tot = mechCount();
+  sfx('sneak');
+  sfx('cash');
+  pop(b.x, b.y - 24, 'BATTERIE ' + n + '/' + tot, '#ffd21f');
+  p.hp -= HEIST_HP;
+  p.lastSrc = 'shop';
+  hurt = 0.25;
+  shake = Math.max(shake, 3);
+  sfx('hurt');
+  msg('MELANIE RUBA LE BATTERIE (' + n + '/' + tot + '): -' + HEIST_HP + ' VITA', '#ffd21f');
+  if (n >= tot) {
+    heist = null;
+    superBat = true;
+    BAT_MAX = SUPER_BAT;
+    for (const t of team) t.bat = Math.min(BAT_MAX, t.bat + (SUPER_BAT - 180));
+    sfx('nitro');
+    msg('TUTTI I MECCANICI RAPINATI! BATTERIE DA 5 MIN E RICARICA X3 IN RIMESSA', '#3cf2ff');
+  }
+}
 // ---------- aggiornamento (chiamato da update) ----------
 function updateSpecial(dt) {
+  if (blockT > 0) {
+    blockT -= dt;
+    if (blockT <= 0) {
+      blockT = 0;
+      msg('BLOCK FINITO: I BIKER RIENTRANO DI NUOVO DA SOLI', '#f2f2f2');
+    }
+  }
+  if (heist) {
+    heist.t -= dt;
+    if (heist.t <= 0) {
+      msg('COLPO DELLE BATTERIE FALLITO: 30 MINUTI SCADUTI (' + heist.done.length + '/' + mechCount() + ')', '#ff4d6d');
+      heist = null;
+    }
+  }
   truceCD = Math.max(0, truceCD - dt);
   if (truceT > 0) {
     truceT -= dt;
