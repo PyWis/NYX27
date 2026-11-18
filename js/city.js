@@ -1,37 +1,86 @@
 'use strict';
 // ---------- city generation ----------
-let ys, bands, solid, kind, blocks, nodes, edges, garage, neons, lamps, miniCv;
-// kind: 0 building,1 road,2 sidewalk,3 park,4 garage
+let ys, bands, solid, kind, blocks, nodes, edges, garage, neons, lamps, miniCv, stadium, landmarks;
+// kind: 0 building,1 road,2 sidewalk,3 park,4 garage,5 campo stadio,6 tribune,7 piazza,8 lago
+// isolati fissi: rimessa con Times Square e Central Park sul lato ovest, stadio di baseball
+const GAR_W = 12,
+  GAR_H = 16, // la fascia della rimessa e' alta 16 celle (ci stanno anche piazza e parco)
+  TSQ_W = 18,
+  CPK_W = 32,
+  STD_W = 24,
+  STD_H = 18,
+  STD_GATE = 3; // larghezza delle 3 entrate (celle)
+// posizioni (strade) tra a e b, con isolati da lo..hi celle; fn opzionale per spostare n
+function fillLine(a, b, lo, hi, fn) {
+  const out = [];
+  let x = a;
+  for (;;) {
+    let n = x + RW + ri(lo, hi);
+    if (fn) n = fn(n);
+    if (n + RW + lo > b) break;
+    out.push(n);
+    x = n;
+  }
+  return out;
+}
 function genCity(seed) {
   rng = mulberry(seed);
+  // fascia della rimessa al centro, fascia dello stadio a nord o a sud
+  const c0 = Math.round(MH / 2 - (RW + GAR_H) / 2),
+    c1 = c0 + RW + GAR_H;
+  const north = rr() < 0.5;
+  const s0 = north ? ri(40, 120) : ri(c1 + 50, MH - RW - (RW + STD_H) - 40),
+    s1 = s0 + RW + STD_H;
+  const fixed = north
+    ? [
+        [s0, s1],
+        [c0, c1],
+      ]
+    : [
+        [c0, c1],
+        [s0, s1],
+      ];
   ys = [0];
-  for (;;) {
-    const n = ys[ys.length - 1] + RW + ri(9, 15);
-    if (n + RW + 9 > MH - RW) {
-      ys.push(MH - RW);
-      break;
-    }
-    ys.push(n);
+  for (const [a, b] of fixed) {
+    ys.push(...fillLine(ys[ys.length - 1], a, 9, 15), a, b);
   }
+  ys.push(...fillLine(ys[ys.length - 1], MH - RW, 9, 15), MH - RW);
+  const midBand = ys.indexOf(c0),
+    stdBand = ys.indexOf(s0);
+  // colonne fisse: rimessa al centro, a ovest Times Square e poi Central Park; lo stadio in una posizione a caso
+  const gx0 = Math.round(MW / 2 - (RW + GAR_W) / 2),
+    gx1 = gx0 + RW + GAR_W,
+    tsx = gx0 - (RW + TSQ_W),
+    cpx = tsx - (RW + CPK_W);
+  const sx0 = ri(30, MW - RW - (RW + STD_W) - 30),
+    sx1 = sx0 + RW + STD_W;
   bands = [];
   let prev = [];
-  for (let i = 0; i < ys.length - 1; i++) {
-    const xs = [0];
-    let x = 0;
-    for (;;) {
-      let n = x + RW + ri(8, 14);
-      // evita l'allineamento con le strade verticali della fascia sopra -> incroci a T, quasi mai a +
-      for (let k = 0; k < 3; k++) {
-        if (prev.some(p => p > 0 && p < MW - RW && Math.abs(p - n) < 6) && rr() > 0.05) n += 7;
-        else break;
-      }
-      if (n + RW + 8 > MW - RW) {
-        xs.push(MW - RW);
-        break;
-      }
-      xs.push(n);
-      x = n;
+  // evita l'allineamento con le strade verticali della fascia sopra -> incroci a T, quasi mai a +
+  const avoid = n => {
+    for (let k = 0; k < 3; k++) {
+      if (prev.some(p => p > 0 && p < MW - RW && Math.abs(p - n) < 6) && rr() > 0.05) n += 7;
+      else break;
     }
+    return n;
+  };
+  const row = fx => {
+    const xs = [0];
+    for (const [a, b] of fx) xs.push(...fillLine(xs[xs.length - 1], a, 8, 14, avoid), a, b);
+    xs.push(...fillLine(xs[xs.length - 1], MW - RW, 8, 14, avoid), MW - RW);
+    return xs;
+  };
+  for (let i = 0; i < ys.length - 1; i++) {
+    const xs =
+      i === midBand
+        ? row([
+            [cpx, tsx],
+            [tsx, gx0],
+            [gx0, gx1],
+          ]).filter((v, k, a) => a.indexOf(v) === k)
+        : i === stdBand
+          ? row([[sx0, sx1]])
+          : row([]);
     bands.push(xs);
     prev = xs;
   }
@@ -96,20 +145,16 @@ function genCity(seed) {
     for (let k = 0; k < arr.length - 1; k++) link(nid(arr[k], ys[i]), nid(arr[k + 1], ys[i]), true);
   }
   bands.forEach((xs, i) => xs.forEach(x => link(nid(x, ys[i]), nid(x, ys[i + 1]), false)));
-  // garage
-  const mid = Math.floor(bands.length / 2);
+  // garage (+ Times Square e Central Park sul lato ovest) e stadio
+  const mid = midBand;
   const gx = bands[mid];
-  let j = 0,
-    bd = 1e9;
-  for (let k = 0; k < gx.length - 1; k++) {
-    const c = (gx[k] + gx[k + 1]) / 2;
-    if (Math.abs(c - MW / 2) < bd) {
-      bd = Math.abs(c - MW / 2);
-      j = k;
-    }
-  }
+  const j = gx.indexOf(gx0);
   const gb = blocks.find(b => b.band === mid && b.col === j);
   gb.type = 'garage';
+  blocks.find(b => b.band === mid && b.col === gx.indexOf(tsx)).type = 'square';
+  blocks.find(b => b.band === mid && b.col === gx.indexOf(cpx)).type = 'cpark';
+  const sb = blocks.find(b => b.band === stdBand && b.col === bands[stdBand].indexOf(sx0));
+  sb.type = 'stadium';
   const ix = (gb.x + 1) * CELL,
     iy = (gb.y + 1) * CELL,
     iw = (gb.w - 2) * CELL,
@@ -130,6 +175,7 @@ function genCity(seed) {
       garage.bays.push({ x: Math.round(ix + (iw * (c + 0.5)) / (NB / 2)), y: Math.round(iy + ih * (r ? 0.78 : 0.27)) });
   // parks
   for (const b of blocks) if (b.type === 'city' && rr() < 0.07 && dist(b.x, b.y, gb.x, gb.y) > 6) b.type = 'park';
+  landmarks = [];
   for (const b of blocks) {
     carve(b.x, b.y, b.w, 1, 2);
     carve(b.x, b.y + b.h - 1, b.w, 1, 2);
@@ -137,6 +183,9 @@ function genCity(seed) {
     carve(b.x + b.w - 1, b.y, 1, b.h, 2);
     if (b.type === 'park') carve(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 3);
     else if (b.type === 'garage') carve(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 4);
+    else if (b.type === 'cpark') buildCentralPark(b);
+    else if (b.type === 'square') buildSquare(b);
+    else if (b.type === 'stadium') buildStadium(b);
     else {
       const r = mulberry(b.seed);
       const out = [];
@@ -144,19 +193,7 @@ function genCity(seed) {
       for (const L of out) {
         L.seed = Math.floor(r() * 1e9);
         L.hgt = 2 + Math.floor(r() * 5);
-        L.roof = pickR(r, [
-          '#3b3552',
-          '#45405e',
-          '#2f3b4a',
-          '#4a3b3b',
-          '#3a4a44',
-          '#504a5c',
-          '#2e2e3e',
-          '#5a4a3a',
-          '#36404f',
-          '#3e4658',
-          '#4b3f52',
-        ]);
+        L.roof = pickR(r, ROOFS);
         const ix2 = b.x + 1,
           iy2 = b.y + 1,
           ex = b.x + b.w - 1,
@@ -245,17 +282,27 @@ function genCity(seed) {
   miniCv = mk(MW / 2, MH / 2);
   const mg = miniCv.getContext('2d');
   const id = mg.createImageData(MW / 2, MH / 2);
-  const COLS = { 1: [107, 93, 146], 2: [46, 39, 66], 0: [18, 14, 26], 3: [31, 90, 51], 4: [255, 61, 242] };
+  const COLS = {
+    1: [107, 93, 146],
+    2: [46, 39, 66],
+    0: [18, 14, 26],
+    3: [31, 90, 51],
+    4: [255, 61, 242],
+    5: [46, 120, 62],
+    6: [150, 150, 176],
+    7: [128, 104, 150],
+    8: [40, 84, 160],
+  };
+  const PRIO = [4, 1, 6, 8, 5, 7, 3, 2];
   for (let y = 0; y < MH / 2; y++)
     for (let x = 0; x < MW / 2; x++) {
-      let best = 0;
       const ks = [
         kind[2 * y * MW + 2 * x],
         kind[2 * y * MW + 2 * x + 1],
         kind[(2 * y + 1) * MW + 2 * x],
         kind[(2 * y + 1) * MW + 2 * x + 1],
       ];
-      best = ks.includes(4) ? 4 : ks.includes(1) ? 1 : ks.includes(3) ? 3 : ks.includes(2) ? 2 : 0;
+      const best = PRIO.find(k => ks.includes(k)) || 0;
       const c = COLS[best];
       const o = ((y * MW) / 2 + x) * 4;
       id.data[o] = c[0];
@@ -266,6 +313,163 @@ function genCity(seed) {
   mg.putImageData(id, 0, 0);
   bcache.clear();
   if (typeof resetWorldCaches === 'function') resetWorldCaches();
+}
+const ROOFS = [
+  '#3b3552',
+  '#45405e',
+  '#2f3b4a',
+  '#4a3b3b',
+  '#3a4a44',
+  '#504a5c',
+  '#2e2e3e',
+  '#5a4a3a',
+  '#36404f',
+  '#3e4658',
+  '#4b3f52',
+];
+function setCells(x, y, w, h, k, s) {
+  for (let j = y; j < y + h; j++)
+    for (let i = x; i < x + w; i++) {
+      const id = j * MW + i;
+      solid[id] = s;
+      kind[id] = k;
+    }
+}
+const blockCenter = b => ({ x: (b.x + b.w / 2) * CELL, y: (b.y + b.h / 2) * CELL });
+// ---------- Central Park: prato grande con lago (il lago non si attraversa) ----------
+function buildCentralPark(b) {
+  const ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2;
+  setCells(ix, iy, iw, ih, 3, 0);
+  const cx = ix + iw * 0.64,
+    cy = iy + ih * 0.45,
+    ax = 5.2,
+    ay = Math.min(3.6, ih * 0.25);
+  for (let j = iy; j < iy + ih; j++)
+    for (let i = ix; i < ix + iw; i++) {
+      const dx = (i + 0.5 - cx) / ax,
+        dy = (j + 0.5 - cy) / ay;
+      if (dx * dx + dy * dy <= 1) setCells(i, j, 1, 1, 8, 1);
+    }
+  b.lake = { cx, cy, ax, ay };
+  landmarks.push({ name: 'CENTRAL PARK', ...blockCenter(b), c: '#5cff7a', b });
+}
+// ---------- Times Square: piazza pedonale tra due file di grattacieli pieni di neon ----------
+function buildSquare(b) {
+  const r = mulberry(b.seed ^ 0x7153),
+    ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2,
+    D = 3;
+  setCells(ix, iy, iw, ih, 7, 0);
+  const rowLots = (y, top) => {
+    let x = ix;
+    const end = ix + iw;
+    while (x < end) {
+      let w = 4 + Math.floor(r() * 3);
+      if (end - x - w < 4) w = end - x;
+      const L = { x, y, w, h: D, seed: Math.floor(r() * 1e9), hgt: 5 + Math.floor(r() * 3), roof: pickR(r, ROOFS) };
+      b.lots.push(L);
+      setCells(x, y, w, D, 0, 1);
+      // insegne giganti verso la piazza (2-3 per palazzo) e una verso la strada
+      const fy = top ? (L.y + L.h) * CELL : L.y * CELL - 2;
+      const seg = 2 + Math.floor(r() * 2),
+        sw = Math.floor((w * CELL - 6) / seg);
+      for (let k = 0; k < seg; k++)
+        b.neon.push({
+          x: L.x * CELL + 3 + k * sw,
+          y: fy,
+          w: sw - 3,
+          h: 2,
+          c: pickR(r, NEON),
+          ph: r() * 10,
+          fl: r() < 0.3,
+          L,
+        });
+      if (r() < 0.6) {
+        const l = Math.max(8, Math.floor(w * CELL * 0.5));
+        b.neon.push({
+          x: L.x * CELL + 4,
+          y: top ? L.y * CELL - 2 : (L.y + L.h) * CELL,
+          w: l,
+          h: 2,
+          c: pickR(r, NEON),
+          ph: r() * 10,
+          fl: false,
+          L,
+        });
+      }
+      x += w;
+    }
+  };
+  rowLots(iy, true);
+  rowLots(iy + ih - D, false);
+  landmarks.push({ name: 'TIMES SQUARE', ...blockCenter(b), c: '#ff3df2', b });
+}
+// ---------- stadio di baseball: tribune con 3 entrate (ovest, nord, est) ----------
+function buildStadium(b) {
+  const ix = b.x + 1,
+    iy = b.y + 1,
+    iw = b.w - 2,
+    ih = b.h - 2,
+    G = STD_GATE,
+    P = v => v * CELL;
+  setCells(ix, iy, iw, ih, 5, 0);
+  setCells(ix, iy, iw, 2, 6, 1);
+  setCells(ix, iy + ih - 2, iw, 2, 6, 1);
+  setCells(ix, iy, 2, ih, 6, 1);
+  setCells(ix + iw - 2, iy, 2, ih, 6, 1);
+  const gm = Math.floor((ih - G) / 2),
+    gn = Math.floor((iw - G) / 2);
+  setCells(ix, iy + gm, 2, G, 5, 0);
+  setCells(ix + gn, iy, G, 2, 5, 0);
+  setCells(ix + iw - 2, iy + gm, 2, G, 5, 0);
+  const my = P(iy + gm + G / 2),
+    mx = P(ix + gn + G / 2);
+  stadium = {
+    b,
+    x0: P(ix + 2),
+    y0: P(iy + 2),
+    x1: P(ix + iw - 2),
+    y1: P(iy + ih - 2),
+    gates: [
+      { n: 'OVEST', gx: P(ix + 1), gy: my, ox: P(b.x - 1.5), oy: my, ix: P(ix + 3.5), iy: my },
+      { n: 'NORD', gx: mx, gy: P(iy + 1), ox: mx, oy: P(b.y - 1.5), ix: mx, iy: P(iy + 3.5) },
+      { n: 'EST', gx: P(ix + iw - 1), gy: my, ox: P(b.x + b.w + 1.5), oy: my, ix: P(ix + iw - 3.5), iy: my },
+    ],
+    lights: [
+      { x: P(ix + 1), y: P(iy + 1) },
+      { x: P(ix + iw - 1), y: P(iy + 1) },
+      { x: P(ix + 1), y: P(iy + ih - 1) },
+      { x: P(ix + iw - 1), y: P(iy + ih - 1) },
+    ],
+  };
+  stadium.cx = (stadium.x0 + stadium.x1) / 2;
+  stadium.cy = (stadium.y0 + stadium.y1) / 2;
+  landmarks.push({ name: 'STADIO', ...blockCenter(b), c: '#9fd4ff', b });
+}
+// dentro il campo dello stadio (le entrate non contano)
+const inStadium = (x, y) => x >= stadium.x0 && x < stadium.x1 && y >= stadium.y0 && y < stadium.y1;
+// vicino allo stadio: dentro l'isolato o a meno di m pixel dal suo bordo
+const nearStadium = (x, y, m) => {
+  const b = stadium.b;
+  return x > b.x * CELL - m && x < (b.x + b.w) * CELL + m && y > b.y * CELL - m && y < (b.y + b.h) * CELL + m;
+};
+// entrata piu' vicina a un punto
+function nearGate(x, y) {
+  let best = stadium.gates[0],
+    bd = 1e9;
+  for (const g of stadium.gates) {
+    const d = dist(g.ix, g.iy, x, y);
+    if (d < bd) {
+      bd = d;
+      best = g;
+    }
+  }
+  return best;
 }
 function genShops() {
   shops = [];
@@ -306,6 +510,24 @@ function genShops() {
   const types = [...SPECIALS];
   for (let i = 0; i < 5; i++) types.push('pharm', 'mech');
   for (let i = 0; i < 20; i++) types.push('shop');
+  // gli isolati grandi (parco, piazza, stadio) possono lasciare zone vuote: completa con altri isolati
+  if (slots.length < types.length) {
+    const extra = blocks.filter(b => b.type === 'city' && b.lots.length && !used.has(b));
+    while (slots.length < types.length && extra.length) {
+      const b = extra.splice(Math.floor(rr() * extra.length), 1)[0];
+      const opts = [];
+      for (const L of b.lots) {
+        if (L.y === b.y + 1) opts.push([L, 't']);
+        if (L.y + L.h === b.y + b.h - 1) opts.push([L, 'b']);
+        if (L.x === b.x + 1) opts.push([L, 'l']);
+        if (L.x + L.w === b.x + b.w - 1) opts.push([L, 'r']);
+      }
+      if (!opts.length) continue;
+      used.add(b);
+      opts.sort((p, q) => q[0].w * q[0].h - p[0].w * p[0].h);
+      slots.push({ b, opts });
+    }
+  }
   let ni = 0;
   types.forEach((type, k) => {
     const sl = slots[k];

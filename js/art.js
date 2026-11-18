@@ -359,7 +359,12 @@ function renderBlock(b) {
     ih = H - 2 * CELL;
   if (b.type === 'park') drawPark(g, r, ix, iy, iw, ih);
   else if (b.type === 'garage') drawGarage(g, r, ix, iy, iw, ih, b);
-  else
+  else if (b.type === 'cpark') drawCentralPark(g, r, ix, iy, iw, ih, b);
+  else if (b.type === 'stadium') drawStadium(g, r, ix, iy, iw, ih, b);
+  else if (b.type === 'square') {
+    drawSquare(g, r, ix, iy, iw, ih, b);
+    for (const L of b.lots) drawLotBase(g, L, b);
+  } else
     for (const L of b.lots) {
       if (L.flat) drawLot(g, L, b);
       else drawLotBase(g, L, b);
@@ -515,6 +520,237 @@ function drawPark(g, r, ix, iy, iw, ih) {
   }
   P(cx + 10, cy - 8, 8, 3, '#5a3d22');
   P(cx - 18, cy + 5, 8, 3, '#5a3d22');
+}
+// ---------- Central Park: prati, sentieri, il lago e la fontana ----------
+function drawCentralPark(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  const isLake = (x, y) => {
+    const cx = b.x + Math.floor(x / CELL),
+      cy = b.y + Math.floor(y / CELL);
+    return kind[cy * MW + cx] === 8;
+  };
+  P(ix, iy, iw, ih, '#1c3a26');
+  for (let i = 0; i < (iw * ih) / 5; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, pickR(r, ['#234a2f', '#163020', '#2a5636', '#1f4229']));
+  for (let i = 0; i < (iw * ih) / 220; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, pickR(r, ['#ff7ad9', '#ffe03c', '#ffffff', '#9fd4ff']));
+  // sentieri: anello perimetrale e due viali che si incrociano
+  const path = '#3a3226',
+    pe = '#4a4030';
+  P(ix + 8, iy + 8, iw - 16, 5, path);
+  P(ix + 8, iy + ih - 13, iw - 16, 5, path);
+  P(ix + 8, iy + 8, 5, ih - 16, path);
+  P(ix + iw - 13, iy + 8, 5, ih - 16, path);
+  const vx = ix + ((iw * 0.3) | 0),
+    hy = iy + ((ih * 0.55) | 0);
+  P(vx, iy + 8, 6, ih - 16, path);
+  P(ix + 8, hy, iw - 16, 6, path);
+  for (let x = ix + 8; x < ix + iw - 8; x += 3) {
+    P(x, iy + 8, 1, 1, pe);
+    P(x, hy, 1, 1, pe);
+  }
+  // il lago (le celle d'acqua sono solide): riva di sabbia, acqua, riflessi
+  for (let y = iy; y < iy + ih; y += CELL)
+    for (let x = ix; x < ix + iw; x += CELL)
+      if (isLake(x, y)) {
+        P(x, y, CELL, CELL, '#1a4670');
+        for (let k = 0; k < 6; k++) P(x + ((r() * 14) | 0), y + ((r() * 15) | 0), 2, 1, '#2d6aa0');
+        if (!isLake(x - CELL, y)) P(x, y, 2, CELL, '#b49a6a');
+        if (!isLake(x + CELL, y)) P(x + CELL - 2, y, 2, CELL, '#b49a6a');
+        if (!isLake(x, y - CELL)) P(x, y, CELL, 2, '#b49a6a');
+        if (!isLake(x, y + CELL)) P(x, y + CELL - 2, CELL, 2, '#b49a6a');
+      }
+  // barchette a remi sul lago
+  for (let y = iy; y < iy + ih; y += CELL)
+    for (let x = ix; x < ix + iw; x += CELL)
+      if (isLake(x, y) && isLake(x + CELL, y) && isLake(x, y + CELL) && r() < 0.18) {
+        P(x + 6, y + 7, 7, 3, '#6b4a32');
+        P(x + 7, y + 8, 5, 1, '#c9a070');
+      }
+  // fontana (Bethesda) all'incrocio dei viali
+  pc(g, vx + 3, hy + 3, 11, '#4a4458');
+  pc(g, vx + 3, hy + 3, 9, '#1d4f7a');
+  pc(g, vx + 3, hy + 3, 3, '#7fd0ff');
+  P(vx + 2, hy + 2, 2, 2, '#ffffff');
+  // alberi
+  const n = Math.floor((iw * ih) / 380);
+  for (let i = 0; i < n; i++) {
+    const rad = 4 + ((r() * 5) | 0);
+    const tx = ix + rad + 2 + ((r() * (iw - 2 * rad - 4)) | 0),
+      ty = iy + rad + 2 + ((r() * (ih - 2 * rad - 4)) | 0);
+    if (Math.abs(tx - vx - 3) < rad + 6 || Math.abs(ty - hy - 3) < rad + 6) continue;
+    if (isLake(tx - rad - 3, ty) || isLake(tx + rad + 3, ty) || isLake(tx, ty - rad - 3) || isLake(tx, ty + rad + 3))
+      continue;
+    pc(g, tx + 2, ty + 2, rad, 'rgba(0,0,0,.35)');
+    pc(g, tx, ty, rad, '#163a22');
+    pc(g, tx - 1, ty - 1, rad - 2, '#22553a');
+    for (let k = 0; k < rad * 2; k++)
+      P(tx - rad + ((r() * rad * 2) | 0), ty - rad + ((r() * rad * 2) | 0), 1, 1, '#3c8a52');
+  }
+  // panchine lungo i viali
+  for (let x = ix + 30; x < ix + iw - 30; x += 46) {
+    P(x, hy - 4, 8, 2, '#5a3d22');
+    P(x + 12, hy + 8, 8, 2, '#5a3d22');
+  }
+  const t = 'CENTRAL PARK',
+    tw = t.length * 6 - 1;
+  P(ix + 16, iy + 16, tw + 6, 11, '#0f1f14');
+  glyphs(g, t, ix + 19, iy + 18, 1, '#5cff7a');
+}
+// ---------- Times Square: piazza pedonale, Broadway in diagonale, scalinata rossa ----------
+function drawSquare(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  P(ix, iy, iw, ih, '#3a3150');
+  g.fillStyle = '#433a5c';
+  for (let x = ix; x < ix + iw; x += 8) g.fillRect(x, iy, 1, ih);
+  for (let y = iy; y < iy + ih; y += 8) g.fillRect(ix, y, iw, 1);
+  for (let i = 0; i < (iw * ih) / 30; i++)
+    P(ix + ((r() * iw) | 0), iy + ((r() * ih) | 0), 1, 1, r() < 0.5 ? '#4b4166' : '#2f2842');
+  // Broadway taglia la piazza in diagonale
+  for (let y = iy; y < iy + ih; y++) {
+    const t = (y - iy) / ih,
+      x = ix + iw * 0.15 + t * iw * 0.7;
+    P(x | 0, y, 26, 1, (y >> 2) % 2 ? '#51477a' : '#4b4172');
+  }
+  // scalinata rossa al centro della piazza
+  const sw = 46,
+    sh = 26,
+    sx = (ix + iw / 2 - sw / 2) | 0,
+    sy = (iy + ih / 2 - sh / 2) | 0;
+  P(sx + 2, sy + 3, sw, sh, 'rgba(0,0,0,.4)');
+  P(sx, sy, sw, sh, '#b0182a');
+  for (let y = sy + 2; y < sy + sh; y += 4) P(sx, y, sw, 1, '#ff4d5a');
+  P(sx, sy, sw, 1, '#ffd0d4');
+  glyphs(g, 'NYX', sx + 14, sy + 10, 1, '#ffe9a0');
+  // fioriere e chioschi
+  for (let x = ix + 14; x < ix + iw - 14; x += 40) {
+    const y = iy + 3 * CELL + 6;
+    P(x, y, 10, 6, '#2a2440');
+    P(x + 1, y + 1, 8, 4, '#2f6b3a');
+    P(x + 3, y + 2, 2, 2, '#ff7ad9');
+    const y2 = iy + ih - 3 * CELL - 12;
+    P(x + 16, y2, 10, 6, '#2a2440');
+    P(x + 17, y2 + 1, 8, 4, '#2f6b3a');
+    P(x + 20, y2 + 2, 2, 2, '#ffe03c');
+  }
+  // maxischermi a terra lungo i palazzi (luce fissa, i colori cambiano di notte nella lightmap)
+  for (let x = ix + 6; x < ix + iw - 30; x += 52) {
+    P(x, iy + 3 * CELL + 1, 24, 3, pickR(r, NEON));
+    P(x + 20, iy + ih - 3 * CELL - 4, 24, 3, pickR(r, NEON));
+  }
+  const t = 'TIMES SQUARE',
+    tw = t.length * 6 - 1;
+  glyphs(g, t, (ix + iw / 2 - tw / 2) | 0, sy + sh + 8, 1, '#ffe03c');
+}
+// ---------- stadio di baseball: tribune, 3 entrate, diamante ----------
+function drawStadium(g, r, ix, iy, iw, ih, b) {
+  const P = (x, y, w, h, cl) => {
+    g.fillStyle = cl;
+    g.fillRect(x, y, w, h);
+  };
+  const S = 2 * CELL,
+    G = STD_GATE * CELL,
+    gm = Math.floor((b.h - 2 - STD_GATE) / 2) * CELL,
+    gn = Math.floor((b.w - 2 - STD_GATE) / 2) * CELL;
+  // tribune: file di seggiolini
+  P(ix, iy, iw, ih, '#24273a');
+  const rows = ['#34508e', '#2b3550', '#8a2f3f', '#2b3550'];
+  for (let k = 0; k < S / 3; k++) {
+    const c = rows[k % 4],
+      o = 1 + k * 3;
+    P(ix + o, iy + o, iw - 2 * o, 2, c);
+    P(ix + o, iy + ih - o - 2, iw - 2 * o, 2, c);
+    P(ix + o, iy + o, 2, ih - 2 * o, c);
+    P(ix + iw - o - 2, iy + o, 2, ih - 2 * o, c);
+  }
+  // qualche tifoso (pochi: e' notte)
+  for (let i = 0; i < (iw * ih) / 260; i++) {
+    const x = ix + ((r() * iw) | 0),
+      y = iy + ((r() * ih) | 0);
+    if (x > ix + S && x < ix + iw - S && y > iy + S && y < iy + ih - S) continue;
+    P(x, y, 1, 1, pickR(r, ['#ffd27a', '#ff7ad9', '#ffffff', '#3cf2ff']));
+  }
+  P(ix, iy, iw, 1, '#9fa6c8');
+  P(ix, iy + ih - 1, iw, 1, '#9fa6c8');
+  P(ix, iy, 1, ih, '#9fa6c8');
+  P(ix + iw - 1, iy, 1, ih, '#9fa6c8');
+  // campo
+  const fx = ix + S,
+    fy = iy + S,
+    fw = iw - 2 * S,
+    fh = ih - 2 * S;
+  for (let x = fx; x < fx + fw; x += 12) P(x, fy, Math.min(12, fx + fw - x), fh, (x - fx) % 24 ? '#2a6e38' : '#2f7a3e');
+  P(fx, fy, fw, 6, '#6b4a2e');
+  P(fx, fy + fh - 6, fw, 6, '#6b4a2e');
+  P(fx, fy, 6, fh, '#6b4a2e');
+  P(fx + fw - 6, fy, 6, fh, '#6b4a2e');
+  // diamante: casa base in basso al centro
+  const hx = (fx + fw / 2) | 0,
+    hy = fy + fh - 22,
+    bd = 40,
+    mcx = hx,
+    mcy = hy - bd;
+  for (let y = mcy - bd - 16; y <= hy + 14; y++)
+    for (let x = hx - bd - 16; x <= hx + bd + 16; x++) {
+      const m = Math.abs(x - mcx) + Math.abs(y - mcy);
+      if (m <= bd + 14 && m > bd - 10) P(x, y, 1, 1, '#8a5a34');
+    }
+  pc(g, hx, hy, 9, '#8a5a34');
+  pc(g, mcx, mcy, 6, '#8a5a34');
+  P(mcx - 2, mcy, 5, 1, '#ffffff');
+  // linee di foul
+  for (let k = 0; k < 140; k++) {
+    const a = hx - k,
+      c = hx + k,
+      y = hy - k;
+    if (y < fy + 6) break;
+    if (a > fx + 6) P(a, y, 1, 1, '#e8e8f0');
+    if (c < fx + fw - 6) P(c, y, 1, 1, '#e8e8f0');
+  }
+  for (const [x, y] of [
+    [hx, hy],
+    [hx + bd, hy - bd],
+    [hx, hy - 2 * bd],
+    [hx - bd, hy - bd],
+  ])
+    P(x - 2, y - 2, 4, 4, '#ffffff');
+  P(hx - 6, hy + 3, 3, 5, '#e8e8f0');
+  P(hx + 4, hy + 3, 3, 5, '#e8e8f0');
+  // 3 entrate (ovest, nord, est) con frecce gialle
+  const gate = (x, y, w, h, lab, lx, ly) => {
+    P(x, y, w, h, '#17141f');
+    for (let k = 2; k < Math.max(w, h) - 2; k += 6)
+      if (w > h) P(x + k, y + (h >> 1) - 1, 3, 2, '#e0c020');
+      else P(x + (w >> 1) - 1, y + k, 2, 3, '#e0c020');
+    glyphs(g, lab, lx, ly, 1, '#ffe03c');
+  };
+  gate(ix, iy + gm, S, G, 'A', ix + S + 4, iy + gm + G / 2 - 3);
+  gate(ix + gn, iy, G, S, 'B', ix + gn + G / 2 - 2, iy + S + 4);
+  gate(ix + iw - S, iy + gm, S, G, 'C', ix + iw - S - 9, iy + gm + G / 2 - 3);
+  // torri faro agli angoli
+  for (const [x, y] of [
+    [ix + 6, iy + 6],
+    [ix + iw - 16, iy + 6],
+    [ix + 6, iy + ih - 16],
+    [ix + iw - 16, iy + ih - 16],
+  ]) {
+    P(x, y, 10, 10, '#4a4f66');
+    P(x + 1, y + 1, 8, 8, '#2c3044');
+    for (let k = 0; k < 3; k++) P(x + 2 + k * 2, y + 2, 1, 6, '#fff6c8');
+  }
+  // tabellone sulla tribuna sud
+  const t = 'NYX BALLPARK',
+    tw = t.length * 6 - 1,
+    tx = (ix + iw / 2 - tw / 2) | 0,
+    ty = iy + ih - S + 12;
+  P(tx - 4, ty - 3, tw + 8, 13, '#0b0a12');
+  glyphs(g, t, tx, ty, 1, '#ffe03c');
 }
 function drawGarage(g, r, ix, iy, iw, ih, b) {
   const P = (x, y, w, h, cl) => {

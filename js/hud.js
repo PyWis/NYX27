@@ -86,6 +86,8 @@ function statusTxt(b) {
     case 'garage':
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
+      if (inMission(b)) return ['NELLO STADIO', '#9fd4ff'];
+      if (blockT > 0) return ['FERMO (BLOCK)', '#f2f2f2'];
       return [b.waitT > 0 ? 'FERMO ' + fmt(b.waitT) : 'ATTENDE CARICA', '#ffe03c'];
     case 'returning':
       return ['RIENTRO', '#ff9de6'];
@@ -124,6 +126,8 @@ function statusShort(b) {
     case 'garage':
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
+      if (inMission(b)) return ['STADIO', '#9fd4ff'];
+      if (blockT > 0) return ['BLOCK', '#f2f2f2'];
       return [b.waitT > 0 ? 'STOP ' + fmt(b.waitT) : 'CARICA', '#ffe03c'];
     case 'returning':
       return ['RIENTRO', '#ff9de6'];
@@ -139,7 +143,9 @@ function statusShort(b) {
       return ['OSP ' + pc, '#ff4d6d'];
     case 'out':
       return [
-        ({ ARRESTATO: 'ARR ', FERITO: 'FER ', FUGGITO: 'FUGA ', ESAUSTA: 'KO ' }[b.outR] || 'OUT ') + shortT(b.outT),
+        ({ ARRESTATO: 'ARR ', FERITO: 'FER ', FUGGITO: 'FUGA ', ESAUSTA: 'KO ', OSTAGGIO: 'OST ', PRIGIONIERO: 'PRIG ' }[
+          b.outR
+        ] || 'OUT ') + shortT(b.outT),
         b.outR === 'ARRESTATO' ? '#3a7bff' : '#ff4d6d',
       ];
     case 'captured':
@@ -163,10 +169,11 @@ function drawTopBar() {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
   }
-  const xn = enemies.length,
+  const xn = cityXeno(),
+    xs = enemies.length - xn,
     xc = xn >= 16 ? '#ff4d6d' : xn >= 10 ? '#ffb03c' : ACID;
   icon('skull', 280, 8, xc);
-  txt('XENO ' + xn + '/20', 290, 8, xc);
+  txt('XENO ' + xn + '/20' + (xs ? ' +' + xs : ''), 290, 8, xc);
   bar(280, 18, 96, 4, xn / 20, xc);
   txt(
     E >= NIGHT ? 'ALBA: NIENTE RINFORZI' : noSpawnT > 0 ? 'CHIESA STOP ' + fmt(noSpawnT) : 'RINFORZO ' + fmt(respawnT),
@@ -243,10 +250,10 @@ function drawHUD() {
   txt(fmt(p.bat), 196, 36, lowB ? '#ff4d6d' : '#ffffff', 1, 'right');
   const still = p.onFoot || Math.abs(p.v) < 4,
     gar = inGarage(p.x, p.y),
-    per = gar ? 15 : 30;
+    per = gar ? (superBat ? 10 : 15) : 30;
   icon('sun', 9, 37, '#ffe03c');
   bar(18, 40, 16, 3, still && p.bat < BAT_MAX ? p.chg / per : 0, '#ffe03c');
-  if (gar) txt('X2', 10, 47, '#ff3df2');
+  if (gar) txt(superBat ? 'X3' : 'X2', 10, 47, '#ff3df2');
   if (p.medOn && blink(2)) txt('+', 26, 47, '#5cff7a');
   let line,
     lc = '#c9c2e6';
@@ -295,6 +302,9 @@ function drawHUD() {
   } else if (isLeader(p.i) && inGarage(pb.x, pb.y)) {
     sp = K('recall') + ': RICHIAMA TUTTI IN RIMESSA';
     sc = p.ui;
+  } else if (p.i === 2 && inGarage(pb.x, pb.y)) {
+    sp = K('recall') + (blockT > 0 ? ': ANNULLA IL BLOCK ' + fmt(blockT) : ': BLOCK 30 MIN (NESSUNO RIENTRA)');
+    sc = '#f2f2f2';
   }
   if (sp) txt(sp, 38, 68, sc);
   drawTopBar();
@@ -346,6 +356,7 @@ function drawHUD() {
     }
   }
   if (capE) needle(Math.atan2(capE.y - pb.y, capE.x - pb.x), '#ff3df2', 14);
+  if (stad && stad.phase === 'ransom') needle(Math.atan2(stadium.cy - pb.y, stadium.cx - pb.x), '#ff6ec7', 18);
   const gold = enemies.find(e => e.kind === 'gold');
   if (gold) needle(Math.atan2(gold.y - pb.y, gold.x - pb.x), XK.gold.c, 16);
   if (ne) {
@@ -435,6 +446,7 @@ function drawHUD() {
   for (const c of police)
     mark(c.x, c.y, c.mode === 'abandoned' ? '#9fd4ff' : blink(6) ? '#ff2b4a' : '#2b6bff', 2, false);
   mark(garage.cx, garage.cy, blink(2) ? '#ff3df2' : '#ffffff', 4);
+  if (stad) mark(stadium.cx, stadium.cy, blink(3) ? '#ff2b4a' : '#ff6ec7', 4);
   for (const b of team) if (b.i !== active && AVAIL(b.status)) mark(b.x, b.y, b.ui, 2);
   if (capE && blink(3)) mark(capE.x, capE.y, '#ff3df2', 3);
   for (const e of enemies) if (e.kind) mark(e.x, e.y, XK[e.kind].c, 3, e.kind !== 'gold');
@@ -461,6 +473,41 @@ function drawHUD() {
   }
   if (truceOn()) {
     strip('TREGUA DI NYX ' + fmt(truceT) + ' - NESSUNO ATTACCA', AX, ay, '#c6ff3a');
+    ay += 12;
+  }
+  if (stad) {
+    const t =
+      stad.phase === 'siege'
+        ? [
+            'XENO ALLO STADIO: ' +
+              enemies.filter(e => e.stad && e.ready).length +
+              '/12 ARRIVATI' +
+              (stad.need > 0 ? ' - RINFORZI ' + stad.need + ' (' + Math.ceil(stad.spawnT) + 'S)' : ''),
+            blink(2) ? '#ff4d6d' : '#ffffff',
+          ]
+        : stad.phase === 'enter'
+          ? ['GLI XENO ENTRANO: ' + enemies.filter(e => e.stad && e.sm === 'in').length + '/12 DENTRO - ASPETTA', '#ff9de6']
+          : stad.phase === 'fight'
+          ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
+          : [
+              'OSTAGGI NELLO STADIO: NOVA ENTRO ' + fmt(stad.t) + ' (' + Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) + 'M)',
+              blink(2) ? '#ff6ec7' : '#ffffff',
+            ];
+    strip(t[0], AX, ay, t[1]);
+    ay += 12;
+  } else {
+    const h = stadiumHint(pb);
+    if (h) {
+      strip(h[0], AX, ay, h[1]);
+      ay += 12;
+    }
+  }
+  if (blockT > 0) {
+    strip('BLOCK DI CASPIAN ' + fmt(blockT) + ' - NESSUNO RIENTRA DA SOLO', AX, ay, '#f2f2f2');
+    ay += 12;
+  }
+  if (heist) {
+    strip('COLPO BATTERIE ' + heist.done.length + '/' + mechCount() + ' - ' + fmt(heist.t), AX, ay, '#ffd21f');
     ay += 12;
   }
   for (const e of enemies) {
@@ -611,6 +658,12 @@ function drawBigMap() {
       if (e) dot(e.x, e.y, '#ff3df2', 4);
     } else if (t.status !== 'dead' && t.i !== active) dot(t.x, t.y, t.ui, 3);
   }
+  for (const m of landmarks) {
+    const [a, b2] = P(m.x, m.y);
+    // parco e piazza sono vicini alla rimessa: etichette sfalsate
+    txt(m.name, a, b2 + (m.name === 'TIMES SQUARE' ? -13 : m.name === 'CENTRAL PARK' ? 13 : -3), m.c, 1, 'center');
+  }
+  if (stad && blink(3)) dot(stadium.cx, stadium.cy, '#ff2b4a', 7);
   dot(garage.cx, garage.cy, '#ff3df2', 6);
   {
     const [a, b] = P(garage.cx, garage.cy);
@@ -894,8 +947,8 @@ function drawPause() {
     ['OSPEDALE: RICOVERO GRATIS +10 VITA/MIN - UN BIKER ALLA VOLTA', '#ff4d6d'],
     ['NEGOZIO MOTO: 5000$ VELOCITA X1.6 PERMANENTE (CASPIAN X1.2) - ARMERIA: 10000$ SECONDA ARMA', '#ff6ec7'],
     ['OSPEDALE: 3 FARMACI DONATI DA 2 BIKER DIVERSI = +25 VITA MAX AL TEAM (FINO A 250)', '#5cff7a'],
-    ['CHIESA: ZEPHYR, POI VESPER = MATRIMONIO 10000$ (MOTO X1.2)', '#ff6ec7'],
-    ['ARMERIA: 2 BIKER QUALSIASI (NON ZEPHYR O VESPER) = ALLENAMENTO, +2 DANNI A ARMI E PUGNI', '#3fd46b'],
+    ['CHIESA: ZEPHYR, POI VESPER = MATRIMONIO 10000$ (TUTTE LE MOTO X1.2)', '#ff6ec7'],
+    ['ARMERIA: 2 BIKER QUALSIASI CHE ARRIVANO IN COPPIA = ALLENAMENTO, +2 DANNI A ARMI E PUGNI', '#3fd46b'],
     [
       'AKIRA: TIENI ' + K('attack') + ', LA MOTO SI FERMA E LA SPADA LASER CARICA 1S - COLPO MORTALE INTORNO',
       '#ff8a1f',
@@ -909,7 +962,10 @@ function drawPause() {
     ['CENTRO ALIENI (ZEPHYR/VESPER): 25$ PER XENO ABBATTUTO - 10+ XENO = AUTO MEDICA', '#c6ff3a'],
     ['MISSIONI: OGNI 15 MIN UN PACCO DA CONSEGNARE - 100$ (+50 OLTRE 75% MAPPA, +50 OLTRE 100%)', '#ffe03c'],
     ["UCCIDI I 2 AGENTI: RUBA L'AUTO (" + K('use') + ') E PORTALA IN RIMESSA = 200-400$', '#9fd4ff'],
-    ['RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA', '#7a6f99'],
+    [
+      'RIMESSA: +2 VITA/MIN, RICARICA X2, ZONA SICURA - CASPIAN IN RIMESSA ' + K('recall') + ': BLOCK 30 MIN',
+      '#7a6f99',
+    ],
     ['SHIFT+' + K('switch') + ' (PAD L3): CAMBIA BIKER E FAI RIENTRARE IN RIMESSA QUELLO LASCIATO', '#c9c2e6'],
     [
       'AKIRA AL CENTRO NASA: RADAR AVANZATO 10000$ PER IL TEAM - ' + K('radar') + ' X3 = SCEGLI UN SOLO OBIETTIVO',
@@ -919,7 +975,9 @@ function drawPause() {
       'MELANIE AL COMMISSARIATO: LISTA RABBIA E RAPINALI TUTTI! (+2000$, RABBIA +1, VITA 1, RISCHIO ARRESTO)',
       '#ffd21f',
     ],
-    ['NOVA AL CENTRO ALIENI: NYX PROCLAMA LA TREGUA 15 MIN 5000$ (OGNI ORA) - XENO FERMI A 15', '#c6ff3a'],
+    ['NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA', '#c6ff3a'],
+    ['MELANIE DAL MECCANICO A PIEDI: RUBA BATTERIE -50 VITA - TUTTI IN 30 MIN: BATTERIE 5 MIN, RIMESSA X3', '#ffd21f'],
+    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO DELLA CITTA ASSEDIANO LO STADIO', '#9fd4ff'],
     ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
     ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];
