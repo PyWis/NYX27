@@ -97,7 +97,7 @@ Zephyr, Atlas, Caspian, Vesper, Sel, Nova e due nuovi:
 In armeria due biker qualsiasi che arrivano in coppia (anche Zephyr e Vesper) possono allenarsi insieme:
 +2 danni ad armi e pugni. Il matrimonio di Zephyr e Vesper in chiesa porta **tutte** le moto a x1,2.
 
-**Atlas e Sel** comprano in armeria le **doppie pistole** (5000$ a testa) e, portando un'auto della polizia
+**Atlas e Sel** comprano in armeria le **doppie pistole** (5000$ a testa, si usano solo sull'auto) e, portando un'auto della polizia
 rubata da un meccanico, dopo un'ora ricevono l'**auto nera**: ci salgono in due, sommano la vita e combattono
 insieme (vedi `FUNZIONI.md`, §8).
 

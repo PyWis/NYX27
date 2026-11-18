@@ -165,7 +165,7 @@ const atGarage = b =>
 const speedOf = b => BASE * b.spd * (b.tuned ? (b.i === 2 ? 1.2 : 1.6) : 1) * (b.nyx ? 2 : 1) * (wedded ? 1.2 : 1); // matrimonio di Zephyr e Vesper: x1,2 a tutto il team
 function setW(b) {
   b.wi = Math.min(b.wi || 0, Math.max(0, b.weapons.length - 1));
-  b.wpn = b.weapons.length ? wpnById(b.weapons[b.wi]) : null;
+  b.wpn = b.weapons.length ? ROSTER[b.weapons[b.wi]].wpn : null;
 }
 
 // ---------- clock: la notte parte sempre alle 18:00 e avanza solo giocando ----------
@@ -413,6 +413,7 @@ function serialize() {
       weapons: b.weapons,
       wi: b.wi,
       tuned: b.tuned,
+      dual: !!b.dual,
       shield: b.shield,
       shieldT: b.shieldT,
       nyx: !!b.nyx,
@@ -508,6 +509,11 @@ function loadGame(S) {
   team = makeTeam();
   S.team.forEach((d, i) => {
     Object.assign(team[i], d);
+    // vecchi salvataggi: le doppie pistole erano un'arma della lista
+    if (d.weapons && d.weapons.includes(DUAL_ID)) {
+      team[i].weapons = d.weapons.filter(w => w !== DUAL_ID);
+      team[i].dual = true;
+    }
     setW(team[i]);
   });
   active = S.active;
@@ -984,10 +990,7 @@ function playerAttack(p) {
     if (n) hitStop = Math.max(hitStop, 0.1);
     return;
   }
-  if (w.k === 'gun' && w.dual) {
-    shootPair(p.x + Math.cos(p.a) * 11, p.y + Math.sin(p.a) * 11, p.a, w, dmg, '#d8b8ff', 3);
-    sfx('rapid');
-  } else if (w.k === 'gun') {
+  if (w.k === 'gun') {
     const x = p.x + Math.cos(p.a) * 11,
       y = p.y + Math.sin(p.a) * 11;
     bullets.push({
@@ -1358,7 +1361,7 @@ const SHOP_ACT = {
     hint(p, s) {
       const m = trainMate(p, s);
       if (m) return 'ALLENAMENTO CON ' + m.name;
-      return p && isCrew(p.i) ? dualHint(p) : 'SECONDA ARMA 10000$';
+      return p && isCrew(p.i) && dualTime() ? dualHint(p) : 'SECONDA ARMA 10000$';
     },
     use(p, s) {
       const m = trainMate(p, s);
@@ -1369,7 +1372,7 @@ const SHOP_ACT = {
         msg(p.name + ' E ' + m.name + ' SI ALLENANO: +2 DANNI (ARMI E PUGNI)', '#3fd46b');
         return;
       }
-      if (isCrew(p.i)) return buyDual(p); // Atlas e Sel: solo le doppie pistole
+      if (isCrew(p.i) && dualTime()) return buyDual(p); // Atlas e Sel: prima dell'auto nera solo le doppie pistole
       const max = ROSTER[p.i].wpn ? 2 : 1;
       const opts = WEAPON_OWNERS.filter(i => !p.weapons.includes(i));
       if (p.weapons.length >= max) msg('HAI GIA LA SECONDA ARMA', '#ffe03c');

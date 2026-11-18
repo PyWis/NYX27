@@ -118,7 +118,7 @@ Il comando passa al biker disponibile successivo. Se non ce n'è nessuno si aspe
 | Scudo NASA | Centro NASA | 500$ | Blocca le armi degli Xeno (non i pugni) per 20 minuti dal primo colpo. |
 | Moto potenziata | Negozio moto | 5000$ | Velocità x1,6 per sempre (Caspian x1,2). |
 | Seconda arma | Armeria | 10000$ | L'arma di un collega, si cambia con Q. |
-| Doppie pistole | Armeria (solo Atlas e Sel) | 5000$ a testa | Seconda arma speciale: 2 colpi da 5 danni, ricarica 0,4 s, gittata media. Per Atlas e Sel sostituisce la seconda arma normale. |
+| Doppie pistole | Armeria (solo Atlas e Sel) | 5000$ a testa | **Solo per l'auto nera**, non si usano in moto: a bordo il compagno spara 2 colpi da 5 danni ogni 0,4 s. Finché l'auto nera non è stata fatta Atlas e Sel in armeria comprano solo queste; dopo possono comprare una seconda arma qualsiasi (10000$) da usare in moto. |
 | Obbligazione | Banca | 1000$ | +40$ al minuto per 30 minuti. |
 | Radar avanzato | Centro NASA (solo Akira) | 10000$ | Per tutto il team (vedi §8). |
 
@@ -156,7 +156,7 @@ Ci si interagisce con **E**.
 | **Centro NASA** | Scudo anti-Xeno 500$. **Akira:** solo radar avanzato 10000$. **Caspian:** notte veloce. |
 | **Ospedale** | Ricovero gratis, +10 vita al minuto, un biker alla volta. 3 farmaci donati da 2 biker diversi danno +25 vita massima a tutto il team (fino a 250). |
 | **Negozio moto** | Moto x1,6 (Caspian x1,2) per 5000$. |
-| **Armeria** | Seconda arma per 10000$ (Atlas e Sel: **doppie pistole** per 5000$). Due biker qualsiasi (anche Zephyr e Vesper) che arrivano **in coppia** si **allenano** insieme: +2 danni ad armi e pugni. Il primo resta fermo davanti all'armeria, il secondo arriva e preme E. |
+| **Armeria** | Seconda arma per 10000$ (Atlas e Sel: prima le **doppie pistole** per 5000$, solo per l'auto nera; fatta l'auto, una seconda arma qualsiasi). Due biker qualsiasi (anche Zephyr e Vesper) che arrivano **in coppia** si **allenano** insieme: +2 danni ad armi e pugni. Il primo resta fermo davanti all'armeria, il secondo arriva e preme E. |
 | **Banca** | Obbligazioni. |
 | **Centro alieni** | **Zephyr/Vesper:** 25$ per ogni Xeno abbattuto dall'ultima visita; con 10 o più arriva l'**auto medica** (3 farmaci alla rimessa e ricovero del biker più ferito). **Nova:** tregua. |
 | **Meccanico** (Melanie a piedi) | **Colpo delle batterie** (vedi §8). In moto Melanie compra il nitro come tutti. |
@@ -196,7 +196,9 @@ Ogni 15 minuti un negozio cerca un corriere. Prendi il pacco e consegnalo al neg
 - Se i 30 minuti scadono il colpo fallisce e si riparte da zero. In moto Melanie compra il nitro come gli altri.
 
 ### Auto nera (Atlas e Sel)
-- **Requisito:** Atlas e Sel hanno tutti e due le **doppie pistole** (armeria, 5000$ a testa).
+- **Requisito:** Atlas e Sel hanno tutti e due le **doppie pistole** (armeria, 5000$ a testa). Le doppie pistole
+  **non si usano in moto**, servono solo a bordo. Una volta fatta l'auto, Atlas e Sel possono comprare in armeria
+  una seconda arma qualsiasi (10000$) da usare in moto.
 - **Officina:** Atlas o Sel porta un'**auto della polizia rubata** da un **meccanico**. Il meccanico monta carrozzeria
   e motore elettrico: dopo **1 ora** l'auto nera è pronta, **parcheggiata a Times Square**. Se ne costruisce una sola.
 - **Si sale a piedi e in due:** chi guida arriva a piedi all'auto e preme **E**; il compagno deve essere fermo vicino

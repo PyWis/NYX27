@@ -12,7 +12,7 @@
 const ATLAS = 1,
   SEL = 4,
   CREW = [ATLAS, SEL];
-const DUAL_ID = 99, // id della seconda arma speciale (non e' un indice del roster)
+const DUAL_ID = 99, // vecchi salvataggi: le doppie pistole erano nella lista delle armi
   DUAL_COST = 5000;
 const DUAL_WPN = { k: 'gun', dual: true, cd: 0.4, dmg: 5, spd: 4.5 * BASE, rng: 14 * BL, label: 'DOPPIE PISTOLE' };
 const CAR_WPN = { k: 'gun', dual: true, cd: 0.5, dmg: 7, spd: 5 * BASE, rng: 30 * BL, label: 'CANNONI GEMELLI' };
@@ -20,10 +20,10 @@ const DARK_BAT = 8 * 60, // 8 minuti di autonomia
   DARK_BUILD = 3600, // 1 ora dal meccanico
   DARK_FAST = 8 * 60, // ricarica completa a Times Square
   DARK_SLOW = 3600; // ricarica completa altrove
-const wpnById = id => (id === DUAL_ID ? DUAL_WPN : ROSTER[id].wpn);
 const isCrew = i => CREW.includes(i);
 const mateOf = i => (i === ATLAS ? SEL : ATLAS);
-const hasDual = i => team[i] && team[i].weapons.includes(DUAL_ID);
+// le doppie pistole si usano solo sull'auto nera (non in moto): sono un flag, non un'arma della lista
+const hasDual = i => !!team[i] && !!team[i].dual;
 // dark: null | {phase:'build'|'ready', t, mech, x, y, a, v, bat, hp, crew:[i,i]|null, driver, cd, gcd}
 let dark = null,
   darkWarnT = 0;
@@ -72,19 +72,20 @@ function darkSprite() {
 const darkSpr = darkSprite();
 
 // ---------- armeria: doppie pistole ----------
+// Atlas e Sel: prima dell'auto nera l'armeria vende solo le doppie pistole;
+// spese per fare l'auto, possono comprare una seconda arma qualsiasi da usare in moto
+const dualTime = () => !dark;
 function dualHint(p) {
-  if (hasDual(p.i)) return '!DOPPIE PISTOLE GIA TUE (' + K('weapon') + ' PER CAMBIARE)';
-  return 'DOPPIE PISTOLE ' + DUAL_COST + '$ (SOLO ATLAS E SEL)';
+  if (hasDual(p.i)) return "!DOPPIE PISTOLE PRESE: PORTATE UN'AUTO DELLA POLIZIA AL MECCANICO";
+  return 'DOPPIE PISTOLE ' + DUAL_COST + '$ (SOLO PER L AUTO NERA)';
 }
 function buyDual(p) {
   if (hasDual(p.i)) return msg('HAI GIA LE DOPPIE PISTOLE', '#ffe03c');
   if (money < DUAL_COST) return msg('SERVONO ' + DUAL_COST + '$', '#ff4d6d');
   money -= DUAL_COST;
-  p.weapons.push(DUAL_ID);
-  p.wi = p.weapons.length - 1;
-  setW(p);
+  p.dual = true;
   sfx('cash');
-  msg(p.name + ' HA LE DOPPIE PISTOLE (' + K('weapon') + ' PER CAMBIARE)', p.ui);
+  msg(p.name + " HA LE DOPPIE PISTOLE: SI USANO SOLO SULL'AUTO NERA", p.ui);
   if (hasDual(ATLAS) && hasDual(SEL) && !dark) msg("ORA PORTATE UN'AUTO DELLA POLIZIA DA UN MECCANICO", '#b48cff');
 }
 
