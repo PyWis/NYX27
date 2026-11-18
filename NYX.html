@@ -3121,22 +3121,28 @@ function resetRun() {
   resetDark();
   clearDecals();
 }
-function newGame(start) {
+// mode: 'classic' (orologio x1), 'fast' (orologio x4, rinforzi sempre ogni 60 s reali), 'tutorial'
+const CLOCK = { classic: 1, fast: 4, tutorial: 0 };
+function newGame(start, mode) {
+  mode = CLOCK[mode] === undefined ? 'classic' : mode;
   const seed = Math.floor(Math.random() * 1e9);
   genCity(seed);
   resetRun();
-  meta = { seed, gameT: 0, ended: null };
+  meta = { seed, gameT: 0, realT: 0, ended: null, mode, clk: CLOCK[mode] };
   team = makeTeam();
   active = start;
   team[active].status = 'active';
-  for (let i = 0; i < 10; i++) spawnEnemy();
+  if (mode === 'tutorial') startTutorial();
+  else for (let i = 0; i < 10; i++) spawnEnemy();
   const p = team[active];
   cam.x = p.x;
   cam.y = p.y;
   buildFlow(p.x, p.y);
   state = 'play';
-  msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA', '#3cf2ff');
-  msg("RESISTI FINO ALL'ALBA", ACID);
+  if (meta.tut) msg('TUTORIAL: SEGUI LE ISTRUZIONI IN ALTO', '#3cf2ff');
+  else
+    msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA' + (meta.mode === 'fast' ? ' (OROLOGIO X4)' : ''), '#3cf2ff');
+  if (!meta.tut) msg("RESISTI FINO ALL'ALBA", ACID);
   sfx('switch');
   saveGame();
 }
@@ -3297,7 +3303,7 @@ function serialize() {
   };
 }
 function saveGame() {
-  if (!meta) return;
+  if (!meta || meta.tut) return; // il tutorial non tocca il salvataggio
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
   } catch (e) {}
@@ -3465,7 +3471,7 @@ function endGame(win, reason) {
   sfx(win ? 'cash' : 'boom');
 }
 function checkEnd() {
-  if (state === 'end' || !meta) return;
+  if (state === 'end' || !meta || meta.tut) return; // il tutorial finisce da solo
   const E = nightE();
   if (team.every(b => b.status === 'dead')) return endGame(false, 'TUTTI I BIKER NYX SONO MORTI');
   if (E >= NIGHT && enemies.length === 0) return endGame(true, "ALL'ALBA NESSUNO XENO E RIMASTO IN CITTA");
@@ -4906,7 +4912,10 @@ function updateMate(b, dt) {
 }
 // ---------- main update ----------
 function update(dt) {
-  meta.gameT += dt;
+  // l'orologio della notte corre x4 in modalita' veloce (fermo nel tutorial);
+  // tutti gli altri tempi (rinforzi, batterie, catture...) restano in secondi di gioco reali
+  meta.gameT += dt * (meta.clk ?? 1);
+  meta.realT = (meta.realT || 0) + dt;
   const E = nightE();
   pAvail = state === 'play';
   if (pAvail && hit('switchHome')) switchBiker(true);
@@ -5087,7 +5096,7 @@ function update(dt) {
   if (respawnT <= 0) {
     respawnT = 60;
     // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
-    if (E < NIGHT && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
+    if (E < NIGHT && !meta.tut && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
   // gli Xeno della missione stadio non contano per quota 20
   if (cityXeno() >= 20) {
@@ -5179,10 +5188,11 @@ function update(dt) {
       endNyx(p, 'NYX TORNA NOVA');
     }
   }
-  if (ap && ap.i === 2 && !meta.fast && meta.gameT < 300 && state === 'play') {
+  if (ap && ap.i === 2 && !meta.fast && !meta.tut && (meta.realT ?? meta.gameT) < 300 && state === 'play') {
     const n = shops.find(s => s.type === 'nasa');
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
   }
+  if (meta.tut) updateTutorial(ap, dt);
   if (ap && ap.hp <= 0) defeat();
   updateStadium(dt);
   if (state === 'wait') {
@@ -7230,6 +7240,148 @@ function loadDark(d) {
 
 </script>
 <script>
+// ===== js/tutorial.js =====
+'use strict';
+// =====================================================================
+//  TUTORIAL: una notte guidata, passo per passo
+//  - l'orologio e' fermo, niente rinforzi, niente game over, nessun salvataggio
+//  - il biker non puo' morire: la vita torna al massimo a ogni passo
+// =====================================================================
+const TUT_STEPS = [
+  {
+    t: () => 'GUIDA LA MOTO: ' + KDRIVE(),
+    sub: 'ALLONTANATI DALLA RIMESSA',
+    enter: s => (s.from = { ...body(team[active]) }),
+    done: (p, s) => dist(p.x, p.y, s.from.x, s.from.y) > 220,
+  },
+  {
+    t: () => 'APRI LA MAPPA: ' + K('map'),
+    sub: 'POI CHIUDILA CON ' + 'LO STESSO TASTO',
+    done: (p, s) => s.seen.map,
+  },
+  {
+    t: () => 'ACCENDI IL RADAR NEGOZI: ' + K('radar'),
+    sub: 'LA BUSSOLA INDICA FARMACIA, MECCANICO E NEGOZIO PIU VICINI',
+    done: () => radarOn || advOn,
+  },
+  {
+    t: () => 'ABBATTI LO XENO: ' + K('attack'),
+    sub: 'ARRIVA DA VICINO - SEGUI LA BUSSOLA',
+    enter: s => {
+      s.k0 = kills;
+      tutXeno();
+    },
+    tick: () => {
+      if (!enemies.length) tutXeno();
+    },
+    done: (p, s) => kills > s.k0,
+  },
+  {
+    t: () => 'SCENDI DALLA MOTO: ' + K('mount'),
+    sub: 'A PIEDI SI RAPINANO I NEGOZI E SI RUBANO LE AUTO',
+    done: p => p.onFoot,
+  },
+  {
+    t: () => 'RISALI IN SELLA: ' + K('mount'),
+    sub: 'DEVI ESSERE VICINO ALLA MOTO',
+    done: p => !p.onFoot,
+  },
+  {
+    t: () => 'COMPRA UN FARMACO IN FARMACIA: ' + K('use'),
+    sub: 'TI REGALIAMO 100$ - IL RADAR TI PORTA ALLA FARMACIA',
+    enter: () => {
+      if (money < 100) money = 100;
+      radarOn = true;
+    },
+    done: p => p.meds > 0,
+  },
+  {
+    t: () => 'USA IL FARMACO: ' + K('med'),
+    sub: 'CURA +25 VITA AL MINUTO FINO AL PIENO',
+    enter: () => (team[active].hp = Math.min(team[active].hp, 60)),
+    done: p => p.medOn || p.meds === 0,
+  },
+  {
+    t: () => 'TORNA IN RIMESSA',
+    sub: 'IN RIMESSA LE BATTERIE SI RICARICANO X2 E LA VITA RISALE',
+    done: p => inGarage(body(p).x, body(p).y),
+  },
+  {
+    t: () => 'CAMBIA BIKER: ' + K('switch'),
+    sub: 'CON SHIFT IL BIKER LASCIATO TORNA DA SOLO IN RIMESSA',
+    enter: s => (s.a0 = active),
+    done: (p, s) => active !== s.a0,
+  },
+];
+// la bussola punta allo Xeno: ne mettiamo uno a distanza ragionevole
+function tutXeno() {
+  const pb = body(team[active]);
+  let best = null,
+    bd = 1e9;
+  for (const n of nodes) {
+    const d = Math.abs(dist(n.x, n.y, pb.x, pb.y) - 260);
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
+  }
+  const e = addEnemy(Math.floor(R() * NB), best.x, best.y, 20, nextEid++);
+  msg('UNO XENO E ENTRATO IN CITTA', ACID);
+  return e;
+}
+function startTutorial() {
+  meta.tut = { step: -1, seen: {}, doneT: 0 };
+  money = 0;
+  tutNext();
+}
+function tutNext() {
+  const s = meta.tut;
+  s.step++;
+  if (s.step >= TUT_STEPS.length) {
+    s.doneT = 3;
+    msg('TUTORIAL COMPLETATO!', '#5cff7a');
+    sfx('cash');
+    return;
+  }
+  const st = TUT_STEPS[s.step];
+  if (st.enter) st.enter(s);
+  if (s.step > 0) sfx('buy');
+}
+// note dal loop principale (la mappa si apre fuori da update)
+function tutNote(k) {
+  if (meta && meta.tut) meta.tut.seen[k] = true;
+}
+function updateTutorial(ap, dt) {
+  const s = meta.tut;
+  if (ap) ap.hp = Math.max(ap.hp, 1); // nel tutorial non si cade
+  if (s.step >= TUT_STEPS.length) {
+    s.doneT -= dt;
+    if (s.doneT <= 0) {
+      state = 'end';
+      meta.ended = { win: true, reason: 'TUTORIAL COMPLETATO - ORA SCEGLI CLASSICA O VELOCE', kills, at: 0 };
+      msgs = [];
+    }
+    return;
+  }
+  const st = TUT_STEPS[s.step];
+  if (st.tick) st.tick(s);
+  if (ap && st.done(ap, s)) tutNext();
+}
+function drawTutorial(AX, ay) {
+  const s = meta.tut;
+  if (s.step >= TUT_STEPS.length) {
+    strip('TUTORIAL COMPLETATO!', AX, ay, '#5cff7a');
+    return ay + 12;
+  }
+  const st = TUT_STEPS[s.step];
+  strip('TUTORIAL ' + (s.step + 1) + '/' + TUT_STEPS.length + ' - ' + st.t(), AX, ay, blink(1) ? '#ffe03c' : '#ffffff');
+  ay += 12;
+  strip(st.sub, AX, ay, '#c9c2e6');
+  return ay + 12;
+}
+
+</script>
+<script>
 // ===== js/render.js =====
 'use strict';
 // =====================================================================
@@ -8330,6 +8482,7 @@ function drawTopBar() {
   panel(206, 4, 334, 36);
   txt(hhmm(E), 212, 8, E >= NIGHT ? '#ffb03c' : '#ffffff', 2);
   bar(212, 26, 58, 3, E / NIGHT, E >= NIGHT ? '#ffb03c' : '#7a6fff'); // avanzamento della notte verso le 06:00
+  if (meta.mode === 'fast') txt('X4', 538, 8, '#9fd4ff', 1, 'right'); // modalita' veloce: orologio x4
   if (weather.int > 0.3) {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
@@ -8651,7 +8804,7 @@ function drawHUD() {
       strip('NYX FERMA IL TEMPO: PORTALA IN RIMESSA', AX, ay, '#ff3df2');
       ay += 12;
     }
-  } else if (enemies.length < 3 && lowT > 0) {
+  } else if (enemies.length < 3 && lowT > 0 && !meta.tut) {
     strip('XENO SOTTO 3: ' + fmtL(lowT) + ' / 30:00 PER VINCERE', AX, ay, '#5cff7a');
     ay += 12;
   }
@@ -8728,7 +8881,8 @@ function drawHUD() {
     strip('BATTERIA BASSA', AX, ay, '#ff4d6d');
     ay += 12;
   }
-  if (nightE() < 40) {
+  if (meta.tut) ay = drawTutorial(AX, ay);
+  else if ((meta.realT ?? 99) < 40) {
     strip('GUIDA ' + KDRIVE() + ' - ATTACCO ' + K('attack'), AX, ay, '#c9c2e6');
     ay += 12;
     strip(
@@ -9016,14 +9170,22 @@ function drawTitle(dt) {
   }
   if (live)
     txt(
-      'NOTTE IN CORSO (ORE ' + hhmm(saved.meta.gameT) + ') - ' + KM('ok') + ': CONTINUA   ' + KM('del') + ': CANCELLA',
+      'NOTTE IN CORSO' +
+        (saved.meta.mode === 'fast' ? ' X4' : '') +
+        ' (ORE ' +
+        hhmm(saved.meta.gameT) +
+        ') - ' +
+        KM('ok') +
+        ': CONTINUA   ' +
+        KM('del') +
+        ': CANCELLA',
       VW / 2,
       y0 + 12,
       bl,
       1,
       'center',
     );
-  else txt('SCEGLI IL BIKER - ' + KM('ok') + ': INIZIA LA NOTTE (ORE 18:00)', VW / 2, y0 + 12, bl, 1, 'center');
+  else txt('SCEGLI IL BIKER - ' + KM('ok') + ': SCEGLI LA MODALITA E INIZIA', VW / 2, y0 + 12, bl, 1, 'center');
   if (titleMsg) txt(titleMsg, VW / 2, y0 + 24, '#ff9de6', 1, 'center');
   const L = [
     'GUIDA ' +
@@ -9060,6 +9222,28 @@ function drawTitle(dt) {
       (PAD.on ? 'GAMEPAD COLLEGATO' : 'GAMEPAD SUPPORTATO'),
   ];
   L.forEach((l, i) => txt(l, VW / 2, y0 + 38 + i * 11, i < 2 ? '#c9c2e6' : '#7a6f99', 1, 'center'));
+  if (modeMenu) drawModeMenu();
+}
+function drawModeMenu() {
+  ctx.fillStyle = 'rgba(5,3,12,.7)';
+  ctx.fillRect(0, 0, VW, VH);
+  const w = 400,
+    h = 44 + MODES.length * 30,
+    x = (VW - w) / 2,
+    y = (VH - h) / 2;
+  panel(x, y, w, h);
+  txt('SCEGLI LA MODALITA - ' + ROSTER[sel].name, VW / 2, y + 8, '#3cf2ff', 1, 'center');
+  MODES.forEach((m, i) => {
+    const yy = y + 26 + i * 30,
+      on = i === modeMenu.sel;
+    if (on) {
+      ctx.fillStyle = 'rgba(60,242,255,.14)';
+      ctx.fillRect(x + 6, yy - 3, w - 12, 26);
+    }
+    txt((on ? '> ' : '  ') + (i + 1) + '. ' + m.name, x + 14, yy, on ? '#ffe03c' : '#ffffff', 1);
+    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : '#7a6f99', 1);
+  });
+  txt(KM('ok') + ': INIZIA   ' + KM('back') + ': INDIETRO', VW / 2, y + h - 12, '#7a6f99', 1, 'center');
 }
 function drawEnd() {
   ctx.fillStyle = 'rgba(5,3,12,.78)';
@@ -9408,7 +9592,26 @@ const STEP = 1 / 120,
 genCity(Math.floor(Math.random() * 1e9));
 let last = performance.now(),
   acc = 0;
+// scelta della modalita' dopo il biker: classica, veloce (orologio x4), tutorial
+const MODES = [
+  { id: 'classic', name: 'CLASSICA', d: '1 MINUTO DI GIOCO = 1 MINUTO DI NOTTE (12 ORE)' },
+  { id: 'fast', name: 'VELOCE X4', d: "L'OROLOGIO CORRE X4 (3 ORE) - RINFORZI SEMPRE OGNI MINUTO" },
+  { id: 'tutorial', name: 'TUTORIAL', d: 'IMPARA I COMANDI PASSO PASSO - NESSUN SALVATAGGIO' },
+];
+let modeMenu = null; // {sel}
+function modeInput() {
+  const m = modeMenu;
+  if (mhit('up') || mhit('left')) m.sel = (m.sel + MODES.length - 1) % MODES.length;
+  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % MODES.length;
+  for (let k = 0; k < MODES.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
+  if (mhit('ok')) {
+    modeMenu = null;
+    newGame(sel, MODES[m.sel].id);
+    resetWeather();
+  } else if (mhit('back')) modeMenu = null;
+}
 function titleInput() {
+  if (modeMenu) return modeInput();
   if (mhit('right')) sel = (sel + 1) % NB;
   if (mhit('left')) sel = (sel + NB - 1) % NB;
   if (mhit('down') || mhit('up')) sel = (sel + NB / 2) % NB;
@@ -9433,10 +9636,7 @@ function titleInput() {
   }
   if (mhit('ok')) {
     if (live) loadGame(saved);
-    else {
-      newGame(sel);
-      resetWeather();
-    }
+    else modeMenu = { sel: 0 };
   }
 }
 function gunInput() {
@@ -9493,8 +9693,10 @@ function frame(t) {
       else if (take('options') || mhit('opts')) optMenu = { sel: 0, sub: null };
     } else if (mapOpen) {
       if (take('map') || mhit('back')) mapOpen = false;
-    } else if (take('map')) mapOpen = true;
-    else if (take('options')) optMenu = { sel: 0, sub: null };
+    } else if (take('map')) {
+      mapOpen = true;
+      tutNote('map');
+    } else if (take('options')) optMenu = { sel: 0, sub: null };
     else if (state === 'play' && take('pause')) paused = true;
     frozen = paused || mapOpen || !!gunMenu || !!listMenu || !!optMenu;
     if (!frozen) {
@@ -9517,7 +9719,7 @@ function frame(t) {
     } // troppo lento: si rallenta invece di "saltare"
     if (pendingFast) {
       pendingFast = false;
-      newGame(2);
+      newGame(2, meta.mode || 'classic');
       meta.gameT = 11 * 3600;
       meta.fast = true;
       msgs = [];

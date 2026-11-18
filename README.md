@@ -59,6 +59,15 @@ colonna sonora synth generata in tempo reale e opzioni per ridurre i lampeggi.
 
 ## Come giocare
 
+Scelto il biker, scegli la **modalità**:
+
+- **Classica:** 1 minuto di gioco = 1 minuto di notte, dalle 18:00 alle 06:00 servono 12 ore.
+- **Veloce x4:** l'orologio della notte corre quattro volte più in fretta (la notte dura 3 ore di gioco).
+  I rinforzi Xeno restano **uno ogni minuto di gioco**, come in classica: arrivano quindi un quarto degli Xeno.
+  Tutti gli altri tempi (batterie, catture, tregua, missioni...) restano in minuti di gioco.
+- **Tutorial:** una notte guidata in 10 passi (guida, mappa, radar, primo Xeno, scendere e risalire,
+  farmacia, farmaco, rimessa, cambio biker). L'orologio è fermo, non si cade e non tocca il salvataggio.
+
 - **File unico:** apri `NYX.html` nel browser (funziona offline, basta un doppio clic).
 - **Versione a moduli:** apri `index.html` (carica i file in `js/`).
 
@@ -160,6 +169,7 @@ e **Central Park** (un parco grande con il lago).
 | `js/ai.js` | Xeno e polizia |
 | `js/special.js` | Xeno Rosso/Silver/Gold, tregua, RAPINALI TUTTI!, radar avanzato, BLOCK, colpo delle batterie |
 | `js/stadium.js` | stadio di baseball: missione dell'assedio, ostaggi, auto medica |
+| `js/tutorial.js` | tutorial passo passo |
 | `js/render.js` | mondo, edifici 3D, luci notturne, meteo, segni a terra |
 | `js/hud.js` | HUD, menu, titolo, opzioni |
 | `js/main.js` | loop a timestep fisso |
@@ -168,4 +178,16 @@ Dopo una modifica ai file in `js/` rigenera il file unico:
 
 ```bash
 node tools/build.js
+```
+
+## Test
+
+Il test apre il gioco in Chromium con Playwright e controlla la scelta della modalità, l'orologio x1/x4,
+i rinforzi, salvataggio e caricamento, l'alba, tutti i passi del tutorial, 5 minuti di simulazione
+senza errori JavaScript e che `NYX.html` sia allineato ai file in `js/`.
+
+```bash
+npm install   # una volta sola (Playwright); poi: npx playwright install chromium
+npm test      # rigenera NYX.html ed esegue tests/run.js
+node tests/run.js --modules   # stesso test sulla versione a moduli (index.html)
 ```

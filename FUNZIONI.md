@@ -6,8 +6,23 @@ Guida completa alle regole e alle meccaniche. I valori sono quelli del codice (`
 
 ## 1. Obiettivo e fine partita
 
-La notte parte alle **18:00** e scorre solo mentre giochi: 1 minuto di gioco = 1 minuto di notte.
-L'alba arriva alle **06:00**, cioè dopo 12 ore di gioco.
+La notte parte alle **18:00** e scorre solo mentre giochi. L'alba arriva alle **06:00**.
+Dopo la scelta del biker si sceglie la modalità:
+
+| Modalità | Orologio | Durata della notte | Rinforzi Xeno |
+|---|---|---|---|
+| **Classica** | 1 minuto di gioco = 1 minuto di notte | 12 ore | 1 ogni minuto di gioco |
+| **Veloce x4** | 1 minuto di gioco = 4 minuti di notte | 3 ore | 1 ogni minuto di gioco (non accelera) |
+| **Tutorial** | fermo alle 18:00 | — | nessuno |
+
+In modalità veloce accelera solo l'orologio: tutto ciò che dipende dall'ora (stadio alle 20:00, 00:00 e 05:00,
+Xeno Rosso dopo 30 minuti di notte, Silver dopo 90, cielo, pioggia, alba) arriva prima. Gli altri tempi
+(batterie, catture, tregua, BLOCK, missioni, "Xeno sotto quota 3 per 30 minuti") restano in minuti di gioco.
+La modalità resta nel salvataggio; nell'HUD accanto all'ora compare **X4**.
+
+**Tutorial:** 10 passi guidati (guida, mappa G, radar V, abbattere uno Xeno, scendere e risalire con Z,
+comprare un farmaco con i 100$ regalati, usarlo con F, tornare in rimessa, cambiare biker con Tab).
+Non si va a 0 di vita, non c'è game over e non viene scritto il salvataggio.
 
 **Vittoria**
 - Alle 06:00 o dopo, in città non resta nessuno Xeno.

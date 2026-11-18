@@ -9,7 +9,26 @@ const STEP = 1 / 120,
 genCity(Math.floor(Math.random() * 1e9));
 let last = performance.now(),
   acc = 0;
+// scelta della modalita' dopo il biker: classica, veloce (orologio x4), tutorial
+const MODES = [
+  { id: 'classic', name: 'CLASSICA', d: '1 MINUTO DI GIOCO = 1 MINUTO DI NOTTE (12 ORE)' },
+  { id: 'fast', name: 'VELOCE X4', d: "L'OROLOGIO CORRE X4 (3 ORE) - RINFORZI SEMPRE OGNI MINUTO" },
+  { id: 'tutorial', name: 'TUTORIAL', d: 'IMPARA I COMANDI PASSO PASSO - NESSUN SALVATAGGIO' },
+];
+let modeMenu = null; // {sel}
+function modeInput() {
+  const m = modeMenu;
+  if (mhit('up') || mhit('left')) m.sel = (m.sel + MODES.length - 1) % MODES.length;
+  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % MODES.length;
+  for (let k = 0; k < MODES.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
+  if (mhit('ok')) {
+    modeMenu = null;
+    newGame(sel, MODES[m.sel].id);
+    resetWeather();
+  } else if (mhit('back')) modeMenu = null;
+}
 function titleInput() {
+  if (modeMenu) return modeInput();
   if (mhit('right')) sel = (sel + 1) % NB;
   if (mhit('left')) sel = (sel + NB - 1) % NB;
   if (mhit('down') || mhit('up')) sel = (sel + NB / 2) % NB;
@@ -34,10 +53,7 @@ function titleInput() {
   }
   if (mhit('ok')) {
     if (live) loadGame(saved);
-    else {
-      newGame(sel);
-      resetWeather();
-    }
+    else modeMenu = { sel: 0 };
   }
 }
 function gunInput() {
@@ -94,8 +110,10 @@ function frame(t) {
       else if (take('options') || mhit('opts')) optMenu = { sel: 0, sub: null };
     } else if (mapOpen) {
       if (take('map') || mhit('back')) mapOpen = false;
-    } else if (take('map')) mapOpen = true;
-    else if (take('options')) optMenu = { sel: 0, sub: null };
+    } else if (take('map')) {
+      mapOpen = true;
+      tutNote('map');
+    } else if (take('options')) optMenu = { sel: 0, sub: null };
     else if (state === 'play' && take('pause')) paused = true;
     frozen = paused || mapOpen || !!gunMenu || !!listMenu || !!optMenu;
     if (!frozen) {
@@ -118,7 +136,7 @@ function frame(t) {
     } // troppo lento: si rallenta invece di "saltare"
     if (pendingFast) {
       pendingFast = false;
-      newGame(2);
+      newGame(2, meta.mode || 'classic');
       meta.gameT = 11 * 3600;
       meta.fast = true;
       msgs = [];
