@@ -863,6 +863,15 @@ function freeCaptives(e) {
 function damageEnemy(e, d) {
   if (e.dead) return;
   // tregua di Nova: nessuno attacca (lo Xeno Gold non la rispetta)
+  // missione stadio: prima che i 12 Xeno siano tutti dentro non si combatte
+  if (e.stad && e.sm !== 'exit' && stadWaiting()) {
+    if (T - (e.tp || 0) > 0.6) {
+      e.tp = T;
+      const q = body(e);
+      pop(q.x, q.y - 12, 'ASPETTA', '#9fd4ff');
+    }
+    return;
+  }
   if (truceOn() && e.kind !== 'gold') {
     if (T - (e.tp || 0) > 0.6) {
       e.tp = T;
@@ -884,7 +893,7 @@ function damageEnemy(e, d) {
   if (e.hp <= 0) {
     e.dead = true;
     kills++;
-    if (e.stad && missionLock()) stad.killed++;
+    if (e.stad && stad && stad.phase === 'fight') stad.killed++;
     boom(b.x, b.y);
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);

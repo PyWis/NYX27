@@ -226,8 +226,11 @@ I biker possono entrarci con la moto o a piedi.
 - Servono **3 biker dentro lo stadio**: quello che guidi più due lasciati fermi sul campo (Tab). Il BLOCK di Caspian aiuta:
   i biker lasciati lì non tornano da soli in rimessa.
 - Si può fare **al massimo 3 volte**: la prima dalle **20:00**, la seconda dalle **00:00**, la terza dalle **05:00**.
-- Parte la missione: **12 Xeno assediano lo stadio** (circa 40 secondi radunati davanti alle entrate), poi
-  **entrano da tutte e tre le entrate**.
+- Parte la missione: **non nascono Xeno nuovi**, sono gli **Xeno già in città** (i 12 più vicini, non gli speciali)
+  a radunarsi davanti alle 3 entrate. Se in città ce ne sono meno di 12 arrivano **rinforzi veloci, uno ogni 5 secondi**,
+  che vanno anch'essi allo stadio.
+- Quando sono arrivati tutti e 12 **entrano da tutte e tre le entrate**. I biker devono **aspettare**: finché i 12 Xeno
+  non sono tutti dentro lo stadio non si combatte (i colpi non li feriscono e loro non attaccano).
 
 ### Regole durante la missione
 - Si gioca **solo con i 3 biker dentro lo stadio**: Tab passa solo tra loro e non si può uscire dallo stadio.

@@ -478,8 +478,16 @@ function drawHUD() {
   if (stad) {
     const t =
       stad.phase === 'siege'
-        ? ['12 XENO ASSEDIANO LO STADIO: ENTRANO TRA ' + fmt(stad.t), blink(2) ? '#ff4d6d' : '#ffffff']
-        : stad.phase === 'fight'
+        ? [
+            'XENO ALLO STADIO: ' +
+              enemies.filter(e => e.stad && e.ready).length +
+              '/12 ARRIVATI' +
+              (stad.need > 0 ? ' - RINFORZI ' + stad.need + ' (' + Math.ceil(stad.spawnT) + 'S)' : ''),
+            blink(2) ? '#ff4d6d' : '#ffffff',
+          ]
+        : stad.phase === 'enter'
+          ? ['GLI XENO ENTRANO: ' + enemies.filter(e => e.stad && e.sm === 'in').length + '/12 DENTRO - ASPETTA', '#ff9de6']
+          : stad.phase === 'fight'
           ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
           : [
               'OSTAGGI NELLO STADIO: NOVA ENTRO ' + fmt(stad.t) + ' (' + Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) + 'M)',
@@ -969,7 +977,7 @@ function drawPause() {
     ],
     ['NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA', '#c6ff3a'],
     ['MELANIE DAL MECCANICO A PIEDI: RUBA BATTERIE -50 VITA - TUTTI IN 30 MIN: BATTERIE 5 MIN, RIMESSA X3', '#ffd21f'],
-    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO ASSEDIANO LO STADIO', '#9fd4ff'],
+    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO DELLA CITTA ASSEDIANO LO STADIO', '#9fd4ff'],
     ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
     ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];

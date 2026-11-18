@@ -120,7 +120,8 @@ In armeria due biker qualsiasi che arrivano in coppia (anche Zephyr e Vesper) po
 ## Lo stadio di baseball
 
 Ogni città ha uno stadio con 3 entrate. Con **3 biker dentro** (dalle 20:00, dalle 00:00 e dalle 05:00, al massimo
-3 volte) **12 Xeno assediano lo stadio** ed entrano da tutte le entrate. Si gioca solo con quei 3 biker, chi cade è
+3 volte) **12 Xeno della città si radunano allo stadio** (se non ci sono, rinforzi uno ogni 5 secondi) ed entrano
+da tutte le entrate: si combatte quando sono dentro tutti e 12. Si gioca solo con quei 3 biker, chi cade è
 rapito. Tutti i 12 abbattuti: l'auto medica del centro alieni li riporta in rimessa, rapporto alieni + 2000$.
 Almeno 9 o almeno 6 abbattuti: Nova deve correre allo stadio (10 o 5 minuti) e restare in ostaggio (1 o 2 ore).
 Meno di 6: tre Xeno escono con gli ostaggi (3 minuti per liberarli) e gli altri si fondono in due Xeno Rossi.

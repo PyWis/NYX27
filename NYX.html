@@ -3700,6 +3700,15 @@ function freeCaptives(e) {
 function damageEnemy(e, d) {
   if (e.dead) return;
   // tregua di Nova: nessuno attacca (lo Xeno Gold non la rispetta)
+  // missione stadio: prima che i 12 Xeno siano tutti dentro non si combatte
+  if (e.stad && e.sm !== 'exit' && stadWaiting()) {
+    if (T - (e.tp || 0) > 0.6) {
+      e.tp = T;
+      const q = body(e);
+      pop(q.x, q.y - 12, 'ASPETTA', '#9fd4ff');
+    }
+    return;
+  }
   if (truceOn() && e.kind !== 'gold') {
     if (T - (e.tp || 0) > 0.6) {
       e.tp = T;
@@ -3721,7 +3730,7 @@ function damageEnemy(e, d) {
   if (e.hp <= 0) {
     e.dead = true;
     kills++;
-    if (e.stad && missionLock()) stad.killed++;
+    if (e.stad && stad && stad.phase === 'fight') stad.killed++;
     boom(b.x, b.y);
     addDebris(b.x, b.y, ROSTER[e.t].ui);
     hitStop = Math.max(hitStop, 0.07);
@@ -6349,16 +6358,18 @@ function drawListMenu() {
 // =====================================================================
 //  STADIO DI BASEBALL: la missione dell'assedio
 //  - 3 biker dentro lo stadio (dalle 20:00, dalle 00:00, dalle 05:00; max 3 volte)
-//  - 12 Xeno assediano lo stadio ed entrano dalle 3 entrate
+//  - gli Xeno gia' in citta' si radunano allo stadio (se non sono 12, rinforzi ogni 5 s)
+//  - entrano dalle 3 entrate; si combatte solo quando sono dentro tutti e 12
 //  - si gioca solo con i 3 biker dentro; a 0 di vita si e' rapiti al 100%
 //  - esiti: tutti abbattuti / almeno 9 / almeno 6 / meno di 6
 //  - la tregua di Nova libera gli ostaggi, che restano prigionieri nello stadio 1 ora
 // =====================================================================
 const STAD_OPEN = [2 * 3600, 6 * 3600, 11 * 3600], // 20:00, 00:00, 05:00
   STAD_N = 12,
-  STAD_SIEGE = 40, // secondi di assedio prima dell'assalto
+  STAD_RESPAWN = 5, // rinforzi veloci se in citta' non ci sono 12 Xeno
+  STAD_STUCK = 120, // uno Xeno bloccato per strada viene considerato arrivato
   STAD_ESCORT = 180; // meno di 6 abbattuti: 3 minuti per liberare gli ostaggi
-let stad = null, // {phase:'siege'|'fight'|'ransom', t, three, killed, hostages, hold, bonus}
+let stad = null, // {phase:'siege'|'enter'|'fight'|'ransom', t, three, killed, n, need, spawnT, hostages, hold, bonus}
   stadRuns = 0,
   stadWarnT = 0;
 function resetStadium() {
@@ -6367,7 +6378,9 @@ function resetStadium() {
   stadWarnT = 0;
 }
 // durante assedio e combattimento si gioca solo con i 3 biker dello stadio
-const missionLock = () => !!stad && (stad.phase === 'siege' || stad.phase === 'fight');
+const missionLock = () => !!stad && stad.phase !== 'ransom';
+// prima che i 12 Xeno siano tutti dentro non si combatte
+const stadWaiting = () => !!stad && (stad.phase === 'siege' || stad.phase === 'enter');
 const inMission = b => missionLock() && stad.three.includes(b.i);
 // biker fermi che non rientrano da soli: BLOCK di Caspian o biker della missione
 const holdIdle = b => blockT > 0 || inMission(b);
@@ -6391,31 +6404,43 @@ function checkStadiumStart(p) {
 function startStadium(p, mates) {
   endNyx(p, '');
   stadRuns++;
-  stad = { phase: 'siege', t: STAD_SIEGE, three: [p.i, ...mates.map(m => m.i)], killed: 0 };
+  stad = { phase: 'siege', t: 0, three: [p.i, ...mates.map(m => m.i)], killed: 0, n: 0, need: STAD_N, spawnT: STAD_RESPAWN };
   for (const m of mates) m.waitT = 0;
-  for (let k = 0; k < STAD_N; k++) {
-    let n = null;
-    for (let t = 0; t < 80; t++) {
-      const c = nodes[Math.floor(R() * nodes.length)];
-      const d = dist(c.x, c.y, stadium.cx, stadium.cy);
-      if (d > 350 && d < 900) {
-        n = c;
-        break;
-      }
-    }
-    if (!n) n = nodes[Math.floor(R() * nodes.length)];
-    const e = addEnemy(Math.floor(R() * NB), n.x, n.y, 25, nextEid++);
-    e.stad = 1;
-    e.sg = k % 3;
-    e.slot = Math.floor(k / 3);
-    e.sm = 'siege';
-    e.wi = 0;
-  }
+  // non nascono Xeno nuovi: si radunano quelli gia' in citta' (i piu' vicini allo stadio)
+  recruitXeno();
   fx.push({ k: 'flash', x: stadium.cx, y: stadium.cy, t: 0, dur: 1, r: 160, c: '#ff2b4a' });
   sfx('alert');
   sfx('siren');
-  msg('MISSIONE STADIO ' + stadRuns + '/3: 12 XENO ASSEDIANO LO STADIO!', '#ff4d6d');
-  msg('SI COMBATTE SOLO CON ' + stad.three.map(i => team[i].name).join(', '), '#9fd4ff');
+  msg('MISSIONE STADIO ' + stadRuns + '/3: GLI XENO DELLA CITTA SI RADUNANO ALLO STADIO!', '#ff4d6d');
+  if (stad.need > 0) msg('IN CITTA NE MANCANO ' + stad.need + ': RINFORZI OGNI ' + STAD_RESPAWN + 'S', '#ff9de6');
+  msg('SI COMBATTE SOLO CON ' + stad.three.map(i => team[i].name).join(', ') + ' QUANDO SONO DENTRO TUTTI E 12', '#9fd4ff');
+}
+// arruola uno Xeno per l'assedio: va alla sua entrata
+function enlist(e) {
+  const k = stad.n++;
+  e.stad = 1;
+  e.sg = k % 3;
+  e.slot = Math.floor(k / 3);
+  e.sm = 'siege';
+  e.wi = 0;
+  e.sT = 0;
+  e.ready = false;
+  e.state = 'wander';
+  e.onFoot = false;
+  e.lchg = 0;
+  e.gpath = null;
+  e.follow = false;
+  stad.need--;
+}
+// Xeno normali gia' in citta' (non gli speciali, non i fedeli di Nyx)
+function recruitXeno() {
+  const free = enemies
+    .filter(e => !e.dead && !e.stad && !e.kind && !e.follow)
+    .sort((a, b) => dist(a.x, a.y, stadium.cx, stadium.cy) - dist(b.x, b.y, stadium.cx, stadium.cy));
+  for (const e of free) {
+    if (stad.need <= 0) break;
+    enlist(e);
+  }
 }
 
 // ---------- movimento degli Xeno dello stadio (true = gestito qui) ----------
@@ -6439,11 +6464,21 @@ function stadiumMove(e, dt) {
   if (e.sm === 'siege') {
     tick();
     const [tx, ty] = siegeSpot(e);
-    if (navTo(e, tx, ty, spd, dt) && dist(e.x, e.y, tx, ty) < 26) e.ready = true;
+    e.sT = (e.sT || 0) + dt;
+    if ((navTo(e, tx, ty, spd, dt) && dist(e.x, e.y, tx, ty) < 26) || e.sT > STAD_STUCK) e.ready = true;
     return true;
   }
   if (e.sm === 'enter' || e.sm === 'exit') {
     tick();
+    // bloccato troppo a lungo: si ritrova all'entrata
+    e.sT = (e.sT || 0) + dt;
+    if (e.sm === 'enter' && e.sT > 60) {
+      e.x = g.ix;
+      e.y = g.iy;
+      e.sm = 'in';
+      e.state = 'chase';
+      return true;
+    }
     const wp =
       e.sm === 'enter'
         ? [
@@ -6480,8 +6515,8 @@ function stadiumMove(e, dt) {
     }
     return true;
   }
-  // dentro: resta nello stadio e attacca solo chi c'e' dentro
-  if (!pAvail || truceOn() || !inStadium(pBody.x, pBody.y)) {
+  // dentro: resta nello stadio e attacca solo chi c'e' dentro, quando sono entrati tutti
+  if (!pAvail || truceOn() || stadWaiting() || !inStadium(pBody.x, pBody.y)) {
     tick();
     e.v *= Math.pow(0.85, dt * 60);
     if (!inStadium(e.x, e.y)) steerTo(e, stadium.cx, stadium.cy, spd * 0.5, dt);
@@ -6496,22 +6531,37 @@ function updateStadium(dt) {
   stadWarnT -= dt;
   if (!stad) return;
   if (stad.phase === 'siege') {
-    stad.t -= dt;
+    stad.t += dt;
+    if (stad.need > 0) {
+      recruitXeno(); // anche i nuovi Xeno arrivati in citta' vanno allo stadio
+      stad.spawnT -= dt;
+      if (stad.need > 0 && stad.spawnT <= 0) {
+        stad.spawnT = STAD_RESPAWN;
+        enlist(spawnEnemy());
+        msg('RINFORZO XENO VERSO LO STADIO (' + stad.n + '/12)', '#ff9de6');
+      }
+    }
     const sx = enemies.filter(e => e.stad && !e.dead);
-    if (stad.t <= 0 || sx.every(e => e.ready)) {
-      stad.phase = 'fight';
-      for (const e of sx)
-        if (e.sm === 'siege') {
-          e.sm = 'enter';
-          e.wi = 0;
-        }
-      msg('GLI XENO ENTRANO DA TUTTE LE ENTRATE!', '#ff4d6d');
+    if (stad.need <= 0 && sx.every(e => e.ready)) {
+      stad.phase = 'enter';
+      for (const e of sx) {
+        e.sm = 'enter';
+        e.wi = 0;
+        e.sT = 0;
+      }
+      msg('I 12 XENO ENTRANO DA TUTTE LE ENTRATE!', '#ff4d6d');
       sfx('alert');
       shake = Math.max(shake, 3);
     }
+  } else if (stad.phase === 'enter') {
+    if (enemies.every(e => !e.stad || e.dead || e.sm === 'in')) {
+      stad.phase = 'fight';
+      msg('TUTTI E 12 GLI XENO SONO NELLO STADIO: COMBATTETE!', '#ff4d6d');
+      sfx('siren');
+    }
   }
-  if (stad.phase === 'siege' || stad.phase === 'fight') {
-    if (!stadXeno()) return stadiumWin();
+  if (stad.phase !== 'ransom') {
+    if (stad.phase === 'fight' && !stadXeno()) return stadiumWin();
     if (!stad.three.some(i => team[i].status === 'active' || team[i].status === 'idle')) return stadiumLost();
     return;
   }
@@ -8151,8 +8201,16 @@ function drawHUD() {
   if (stad) {
     const t =
       stad.phase === 'siege'
-        ? ['12 XENO ASSEDIANO LO STADIO: ENTRANO TRA ' + fmt(stad.t), blink(2) ? '#ff4d6d' : '#ffffff']
-        : stad.phase === 'fight'
+        ? [
+            'XENO ALLO STADIO: ' +
+              enemies.filter(e => e.stad && e.ready).length +
+              '/12 ARRIVATI' +
+              (stad.need > 0 ? ' - RINFORZI ' + stad.need + ' (' + Math.ceil(stad.spawnT) + 'S)' : ''),
+            blink(2) ? '#ff4d6d' : '#ffffff',
+          ]
+        : stad.phase === 'enter'
+          ? ['GLI XENO ENTRANO: ' + enemies.filter(e => e.stad && e.sm === 'in').length + '/12 DENTRO - ASPETTA', '#ff9de6']
+          : stad.phase === 'fight'
           ? ['STADIO: XENO ABBATTUTI ' + stad.killed + '/12 - RESTANO ' + stadXeno(), '#9fd4ff']
           : [
               'OSTAGGI NELLO STADIO: NOVA ENTRO ' + fmt(stad.t) + ' (' + Math.round(dist(stadium.cx, stadium.cy, pb.x, pb.y) / 8) + 'M)',
@@ -8642,7 +8700,7 @@ function drawPause() {
     ],
     ['NOVA AL CENTRO ALIENI: TREGUA 15 MIN 5000$ OGNI ORA - I RAPITI RESTANO PRIGIONIERI NELLO STADIO 1 ORA', '#c6ff3a'],
     ['MELANIE DAL MECCANICO A PIEDI: RUBA BATTERIE -50 VITA - TUTTI IN 30 MIN: BATTERIE 5 MIN, RIMESSA X3', '#ffd21f'],
-    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO ASSEDIANO LO STADIO', '#9fd4ff'],
+    ['STADIO (DALLE 20:00, 00:00, 05:00): 3 BIKER DENTRO = 12 XENO DELLA CITTA ASSEDIANO LO STADIO', '#9fd4ff'],
     ['DOPO 30 MIN XENO ROSSI (VITA 40): IN 3 ALLA RIMESSA DIVENTANO SILVER E RAPISCONO 2 BIKER', '#ff2b2b'],
     ['DOPO 90 MIN XENO SILVER (VITA 90, X1.5): IN 15 MIN DIVENTA GOLD (X2.5) E ASSEDIA GLI EDIFICI UNICI', '#ffd21f'],
   ];
