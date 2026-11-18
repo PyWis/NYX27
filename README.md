@@ -125,7 +125,7 @@ da tutte le entrate: si combatte quando sono dentro tutti e 12. Si gioca solo co
 rapito. Tutti i 12 abbattuti: l'auto medica del centro alieni li riporta in rimessa, rapporto alieni + 2000$.
 Almeno 9 o almeno 6 abbattuti: Nova deve correre allo stadio (10 o 5 minuti) e restare in ostaggio (1 o 2 ore).
 Meno di 6: tre Xeno escono con gli ostaggi (3 minuti per liberarli) e gli altri si fondono in due Xeno Rossi.
-Dettagli in [FUNZIONI.md](FUNZIONI.md).
+Dettagli in [FUNZIONI.md](FUNZIONI.md); tutte le missioni speciali in [MISSIONI.md](MISSIONI.md).
 
 ## La città
 
