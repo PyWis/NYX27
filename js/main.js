@@ -12,7 +12,7 @@ let last = performance.now(),
 // scelta della modalita' dopo il biker: classica, veloce (orologio x4), tutorial
 const MODES = [
   { id: 'classic', name: 'CLASSICA', d: '1 MINUTO DI GIOCO = 1 MINUTO DI NOTTE (12 ORE)' },
-  { id: 'fast', name: 'VELOCE X4', d: 'OROLOGIO X4 - ATTESE A META - NOVA 02:00 - XENO ENTRO 07:00' },
+  { id: 'fast', name: 'VELOCE X4', d: 'OROLOGIO X4 - ATTESE /2 - NOVA TORNA IN 2 ORE - FINE 07:00' },
   { id: 'tutorial', name: 'TUTORIAL', d: 'IMPARA I COMANDI PASSO PASSO - NESSUN SALVATAGGIO' },
 ];
 // rivincita: compare solo entro 7 giorni reali da una notte vinta

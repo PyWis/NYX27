@@ -27,8 +27,11 @@ Regole in più della modalità veloce:
   pausa dei negozi tra una rapina e l'altra e calo della rabbia, negozi fuori uso, preghiera in chiesa,
   attesa della tregua di Nova, costruzione dell'auto nera. Scadenze e durate (catture, missioni, scudi,
   protezione della chiesa, rinforzi) restano come sono.
-- **Nova arriva alle 02:00:** prima non si può scegliere né con Tab (nel roster compare "ORE 02:00");
-  se la si sceglie come biker iniziale si parte con Zephyr.
+- **Nova torna dopo 2 ore:** Nova si sceglie normalmente. Se non è disponibile (rapita, fuori gioco, arrestata,
+  ostaggio nello stadio, in cura, in ospedale, sull'auto medica, a piedi verso la moto) dopo **2 ore di orologio**
+  torna in rimessa con almeno 30 di vita. Da rapita non muore: allo scadere delle 2 ore viene liberata.
+  Al **centro NASA** chiunque può liberarla subito per **2500$** ("LIBERA NOVA"). La tregua al centro alieni
+  non conta, perché è una sua scelta; se muore resta morta.
 - **Termine alle 07:00:** dall'alba (06:00) niente più rinforzi, ma si perde solo se alle **07:00**
   ci sono ancora Xeno in città (in classica resta alle 06:15).
 

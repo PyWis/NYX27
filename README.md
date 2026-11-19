@@ -65,7 +65,7 @@ Scelto il biker, scegli la **modalità**:
 - **Veloce x4:** l'orologio della notte corre quattro volte più in fretta (la notte dura 3 ore di gioco).
   I rinforzi Xeno restano **uno ogni minuto di gioco**, come in classica: arrivano quindi un quarto degli Xeno.
   I **tempi di attesa si dimezzano** (ricariche, cure, fuori gioco, soste, cooldown di negozi e chiesa...),
-  **Nova arriva alle 02:00** e il termine per eliminare gli Xeno è alle **07:00**.
+  se **Nova** non è disponibile torna dopo **2 ore di orologio** (o la NASA la libera subito per 2500$) e il termine per eliminare gli Xeno è alle **07:00**.
 - **Rivincita x2:** dopo una vittoria, per 7 giorni reali, puoi rigiocare la stessa notte con la vita
   di tutti gli Xeno raddoppiata.
 - **Tutorial:** una notte guidata in 10 passi (guida, mappa, radar, primo Xeno, scendere e risalire,

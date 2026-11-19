@@ -112,25 +112,55 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   r = await ev(() => {
     newGame(5, 'fast');
     resetWeather();
-    return { a: active, n: nextAvail(4), lk: novaLocked() };
+    return { a: active, s: team[5].status };
   });
-  ok(r.a !== 5 && r.lk, 'veloce: Nova non e disponibile alle 18:00', r);
+  ok(r.a === 5 && r.s === 'active', 'veloce: Nova si puo scegliere', r);
+  const novaOutTest = st =>
+    ev(st => {
+      newGame(0, 'fast');
+      resetWeather();
+      respawnT = 1e9;
+      const n = team[NOVA];
+      n.status = st;
+      n.hp = 10;
+      if (st === 'out') {
+        n.outR = 'ARRESTATO';
+        n.outT = 1e6;
+      }
+      if (st === 'captured') {
+        n.captor = enemies[0].id;
+        n.capT = 1800;
+      }
+      if (st === 'hosp') n.hp = -1e6; // non guarisce mai da sola
+      const t0 = meta.gameT;
+      for (let i = 0; i < 1790 * 120 && state === 'play'; i++) update(STEP);
+      const before = n.status;
+      for (let i = 0; i < 20 * 120 && state === 'play'; i++) update(STEP);
+      return { before, after: n.status, hp: n.hp, h: (meta.gameT - t0) / 3600, avail: nextAvail(4) === NOVA };
+    }, st);
+  for (const st of ['out', 'captured', 'hosp']) {
+    r = await novaOutTest(st);
+    ok(r.before === st && r.after === 'garage' && r.hp >= 30, 'veloce: Nova ' + st + ' torna disponibile dopo 2 ore di orologio', r);
+  }
   r = await ev(() => {
-    const seen = [];
-    for (let k = 0; k < NB; k++) seen.push(nextAvail(k));
-    return seen;
+    newGame(0, 'fast');
+    resetWeather();
+    const n = team[NOVA];
+    n.status = 'out';
+    n.outR = 'ARRESTATO';
+    n.outT = 1e6;
+    const s = shops.find(s => s.type === 'nasa');
+    const p = team[active];
+    const hint = SHOP_ACT.nasa.hint(p);
+    money = 1000;
+    SHOP_ACT.nasa.use(p);
+    const poor = n.status;
+    money = 3000;
+    SHOP_ACT.nasa.use(p);
+    return { hint, poor, st: n.status, money };
   });
-  ok(!r.includes(5), 'veloce: TAB non passa a Nova prima delle 02:00', r);
-  r = await ev(() => {
-    meta.gameT = 8 * 3600 - 2;
-    enemies.length = 0;
-    respawnT = 999;
-    xenoFullT = null;
-    lowT = 0;
-    for (let i = 0; i < 2 * 120; i++) update(STEP);
-    return { lk: novaLocked(), h: hhmm(meta.gameT), n: nextAvail(4), ok: !!meta.novaOk };
-  });
-  ok(!r.lk && r.ok && r.n === 5, 'veloce: alle 02:00 Nova diventa disponibile', r);
+  ok(/LIBERA NOVA 2500/.test(r.hint), 'veloce: la NASA offre di liberare Nova', r);
+  ok(r.poor === 'out' && r.st === 'garage' && r.money === 500, 'veloce: la NASA libera Nova per 2500$', r);
   const outTest = mode =>
     ev(m => {
       newGame(0, m);

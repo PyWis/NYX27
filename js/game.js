@@ -286,13 +286,33 @@ function resetRun() {
 }
 // mode: 'classic' (orologio x1), 'fast' (orologio x4, rinforzi sempre ogni 60 s reali), 'tutorial'
 const CLOCK = { classic: 1, fast: 4, tutorial: 0 };
-// modalita' veloce: tempi di attesa dimezzati, Nova solo dalle 02:00, termine per gli Xeno alle 07:00
+// modalita' veloce: tempi di attesa dimezzati, Nova torna disponibile dopo 2 ore, termine per gli Xeno alle 07:00
 const fastOn = () => !!meta && meta.mode === 'fast';
 const waitDt = dt => (fastOn() ? dt * 2 : dt);
-const NOVA_FAST_T = 8 * 3600, // 02:00
+const NOVA_BACK_T = 2 * 3600, // 2 ore di orologio
+  NOVA_FREE_COST = 2500, // la NASA la libera subito
   FAST_FINAL = 13 * 3600; // 07:00
-const novaLocked = () => fastOn() && meta.gameT < NOVA_FAST_T;
 const finalT = () => (fastOn() ? FAST_FINAL : FINAL);
+// Nova non disponibile (rapita, fuori gioco, ostaggio, in cura...): non la tregua, che e' una sua scelta
+const NOVA_OFF = ['captured', 'out', 'hosp', 'medbay', 'amb', 'waitamb', 'fetch'];
+const novaOff = () => fastOn() && !!team[NOVA] && NOVA_OFF.includes(team[NOVA].status);
+// Nova torna in rimessa, pronta a guidare
+function novaBack(why) {
+  const n = team[NOVA];
+  if (amb) amb.riders = amb.riders.filter(b => b !== n);
+  n.status = 'garage';
+  n.hp = Math.max(n.hp, 30);
+  n.captor = 0;
+  n.capT = 0;
+  n.outT = 0;
+  n.outR = '';
+  n.fpath = null;
+  n.homeAfter = false;
+  toBay(n);
+  meta.novaOffAt = null;
+  fx.push({ k: 'flash', x: n.x, y: n.y, t: 0, dur: 0.8, r: 60, c: '#ff3df2' });
+  msg(why, '#ff3df2');
+}
 // rivincita: una notte vinta si puo' rigiocare (stessa citta') con la vita degli Xeno x2 entro 7 giorni reali
 const REPLAY_KEY = 'nyx-replay',
   REPLAY_MS = 7 * 24 * 3600 * 1000;
@@ -317,7 +337,6 @@ function newGame(start, mode, opts) {
   genCity(seed);
   resetRun();
   meta = { seed, gameT: 0, realT: 0, ended: null, mode, clk: CLOCK[mode], xhp: opts.xhp || 1 };
-  if (start === NOVA && novaLocked()) start = 0; // in veloce Nova arriva solo alle 02:00
   team = makeTeam();
   active = start;
   team[active].status = 'active';
@@ -332,7 +351,7 @@ function newGame(start, mode, opts) {
   else
     msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA' + (meta.mode === 'fast' ? ' (OROLOGIO X4)' : ''), '#3cf2ff');
   if (!meta.tut) msg("RESISTI FINO ALL'ALBA", ACID);
-  if (meta.mode === 'fast') msg('NOVA ARRIVA ALLE 02:00 - TERMINE PER GLI XENO ALLE 07:00', '#9fd4ff');
+  if (meta.mode === 'fast') msg('TERMINE PER GLI XENO ALLE 07:00', '#9fd4ff');
   if (meta.xhp > 1) msg('RIVINCITA: GLI XENO HANNO VITA X' + meta.xhp, '#ff4d6d');
   sfx('switch');
   saveGame();
@@ -761,7 +780,6 @@ function nextAvail(from) {
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
     if (lock && !stad.three.includes(j)) continue;
-    if (j === NOVA && novaLocked()) continue; // veloce: Nova solo dalle 02:00
     if (AVAIL(team[j].status) || team[j].status === 'car') return j;
   }
   return -1;
@@ -1286,12 +1304,21 @@ const SHOP_ACT = {
   },
   nasa: {
     hint: p =>
-      p && p.i === AKIRA
+      novaOff()
+        ? 'LIBERA NOVA ' + NOVA_FREE_COST + '$'
+        : p && p.i === AKIRA
         ? advRadar
           ? '!RADAR AVANZATO GIA ATTIVO (' + K('radar') + ' X3)'
           : 'RADAR AVANZATO ' + ADV_RADAR_COST + '$ (TUTTO IL TEAM)'
         : 'SCUDO ANTI-XENO 500$',
     use(p) {
+      // veloce: la NASA libera Nova se non e' disponibile
+      if (novaOff()) {
+        if (money < NOVA_FREE_COST) return msg('SERVONO ' + NOVA_FREE_COST + '$ PER LIBERARE NOVA', '#ff4d6d');
+        money -= NOVA_FREE_COST;
+        sfx('cash');
+        return novaBack('LA NASA HA LIBERATO NOVA: E IN RIMESSA');
+      }
       // Akira puo' comprare solo il radar avanzato
       if (p.i === AKIRA) {
         if (advRadar) msg('RADAR AVANZATO GIA ATTIVO', '#ffe03c');
@@ -2113,6 +2140,11 @@ function updateMate(b, dt) {
       break;
     case 'captured':
       b.capT -= dt;
+      // veloce: Nova rapita non muore, dopo 2 ore torna (la cattura dura proprio 2 ore di orologio)
+      if (b.capT <= 0 && b.i === NOVA && fastOn()) {
+        novaBack('SONO PASSATE 2 ORE: NOVA E DI NUOVO DISPONIBILE');
+        break;
+      }
       if (b.capT <= 0) {
         b.status = 'dead';
         msg(b.name + ' E STATO UCCISO DAGLI XENO', '#ff4d6d');
@@ -2403,10 +2435,11 @@ function update(dt) {
     const n = shops.find(s => s.type === 'nasa');
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
   }
-  if (fastOn() && !meta.novaOk && meta.gameT >= NOVA_FAST_T) {
-    meta.novaOk = true;
-    if (team[NOVA].status !== 'dead') msg('SONO LE 02:00: NOVA E DISPONIBILE', '#ff3df2');
-  }
+  // veloce: se Nova non e' disponibile, dopo 2 ore di orologio torna in rimessa
+  if (novaOff()) {
+    if (meta.novaOffAt == null) meta.novaOffAt = meta.gameT;
+    else if (meta.gameT - meta.novaOffAt >= NOVA_BACK_T) novaBack('SONO PASSATE 2 ORE: NOVA E DI NUOVO DISPONIBILE');
+  } else if (meta.novaOffAt != null) meta.novaOffAt = null;
   if (meta.tut) updateTutorial(ap, dt);
   if (ap && ap.hp <= 0) defeat();
   updateStadium(dt);

@@ -86,7 +86,6 @@ function statusTxt(b) {
     case 'car':
       return ["SULL'AUTO NERA", '#b48cff'];
     case 'garage':
-      if (b.i === NOVA && novaLocked()) return ['ARRIVA ALLE 02:00', '#7a6f99'];
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['NELLO STADIO', '#9fd4ff'];
@@ -132,7 +131,6 @@ function statusShort(b) {
     case 'car':
       return ['AUTO NERA', '#b48cff'];
     case 'garage':
-      if (b.i === NOVA && novaLocked()) return ['ORE 02:00', '#7a6f99'];
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['STADIO', '#9fd4ff'];
