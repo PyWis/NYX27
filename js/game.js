@@ -284,22 +284,28 @@ function resetRun() {
   resetDark();
   clearDecals();
 }
-function newGame(start) {
+// mode: 'classic' (orologio x1), 'fast' (orologio x4, rinforzi sempre ogni 60 s reali), 'tutorial'
+const CLOCK = { classic: 1, fast: 4, tutorial: 0 };
+function newGame(start, mode) {
+  mode = CLOCK[mode] === undefined ? 'classic' : mode;
   const seed = Math.floor(Math.random() * 1e9);
   genCity(seed);
   resetRun();
-  meta = { seed, gameT: 0, ended: null };
+  meta = { seed, gameT: 0, realT: 0, ended: null, mode, clk: CLOCK[mode] };
   team = makeTeam();
   active = start;
   team[active].status = 'active';
-  for (let i = 0; i < 10; i++) spawnEnemy();
+  if (mode === 'tutorial') startTutorial();
+  else for (let i = 0; i < 10; i++) spawnEnemy();
   const p = team[active];
   cam.x = p.x;
   cam.y = p.y;
   buildFlow(p.x, p.y);
   state = 'play';
-  msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA', '#3cf2ff');
-  msg("RESISTI FINO ALL'ALBA", ACID);
+  if (meta.tut) msg('TUTORIAL: SEGUI LE ISTRUZIONI IN ALTO', '#3cf2ff');
+  else
+    msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA' + (meta.mode === 'fast' ? ' (OROLOGIO X4)' : ''), '#3cf2ff');
+  if (!meta.tut) msg("RESISTI FINO ALL'ALBA", ACID);
   sfx('switch');
   saveGame();
 }
@@ -460,7 +466,7 @@ function serialize() {
   };
 }
 function saveGame() {
-  if (!meta) return;
+  if (!meta || meta.tut) return; // il tutorial non tocca il salvataggio
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
   } catch (e) {}
@@ -628,7 +634,7 @@ function endGame(win, reason) {
   sfx(win ? 'cash' : 'boom');
 }
 function checkEnd() {
-  if (state === 'end' || !meta) return;
+  if (state === 'end' || !meta || meta.tut) return; // il tutorial finisce da solo
   const E = nightE();
   if (team.every(b => b.status === 'dead')) return endGame(false, 'TUTTI I BIKER NYX SONO MORTI');
   if (E >= NIGHT && enemies.length === 0) return endGame(true, "ALL'ALBA NESSUNO XENO E RIMASTO IN CITTA");
@@ -2069,7 +2075,10 @@ function updateMate(b, dt) {
 }
 // ---------- main update ----------
 function update(dt) {
-  meta.gameT += dt;
+  // l'orologio della notte corre x4 in modalita' veloce (fermo nel tutorial);
+  // tutti gli altri tempi (rinforzi, batterie, catture...) restano in secondi di gioco reali
+  meta.gameT += dt * (meta.clk ?? 1);
+  meta.realT = (meta.realT || 0) + dt;
   const E = nightE();
   pAvail = state === 'play';
   if (pAvail && hit('switchHome')) switchBiker(true);
@@ -2250,7 +2259,7 @@ function update(dt) {
   if (respawnT <= 0) {
     respawnT = 60;
     // durante la tregua gli Xeno non aumentano se sono gia' 15 o piu'
-    if (E < NIGHT && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
+    if (E < NIGHT && !meta.tut && noSpawnT <= 0 && cityXeno() < (truceOn() ? TRUCE_CAP : 20)) spawnXeno();
   }
   // gli Xeno della missione stadio non contano per quota 20
   if (cityXeno() >= 20) {
@@ -2342,10 +2351,11 @@ function update(dt) {
       endNyx(p, 'NYX TORNA NOVA');
     }
   }
-  if (ap && ap.i === 2 && !meta.fast && meta.gameT < 300 && state === 'play') {
+  if (ap && ap.i === 2 && !meta.fast && !meta.tut && (meta.realT ?? meta.gameT) < 300 && state === 'play') {
     const n = shops.find(s => s.type === 'nasa');
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
   }
+  if (meta.tut) updateTutorial(ap, dt);
   if (ap && ap.hp <= 0) defeat();
   updateStadium(dt);
   if (state === 'wait') {

@@ -177,6 +177,7 @@ function drawTopBar() {
   panel(206, 4, 334, 36);
   txt(hhmm(E), 212, 8, E >= NIGHT ? '#ffb03c' : '#ffffff', 2);
   bar(212, 26, 58, 3, E / NIGHT, E >= NIGHT ? '#ffb03c' : '#7a6fff'); // avanzamento della notte verso le 06:00
+  if (meta.mode === 'fast') txt('X4', 538, 8, '#9fd4ff', 1, 'right'); // modalita' veloce: orologio x4
   if (weather.int > 0.3) {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
@@ -498,7 +499,7 @@ function drawHUD() {
       strip('NYX FERMA IL TEMPO: PORTALA IN RIMESSA', AX, ay, '#ff3df2');
       ay += 12;
     }
-  } else if (enemies.length < 3 && lowT > 0) {
+  } else if (enemies.length < 3 && lowT > 0 && !meta.tut) {
     strip('XENO SOTTO 3: ' + fmtL(lowT) + ' / 30:00 PER VINCERE', AX, ay, '#5cff7a');
     ay += 12;
   }
@@ -575,7 +576,8 @@ function drawHUD() {
     strip('BATTERIA BASSA', AX, ay, '#ff4d6d');
     ay += 12;
   }
-  if (nightE() < 40) {
+  if (meta.tut) ay = drawTutorial(AX, ay);
+  else if ((meta.realT ?? 99) < 40) {
     strip('GUIDA ' + KDRIVE() + ' - ATTACCO ' + K('attack'), AX, ay, '#c9c2e6');
     ay += 12;
     strip(
@@ -863,14 +865,22 @@ function drawTitle(dt) {
   }
   if (live)
     txt(
-      'NOTTE IN CORSO (ORE ' + hhmm(saved.meta.gameT) + ') - ' + KM('ok') + ': CONTINUA   ' + KM('del') + ': CANCELLA',
+      'NOTTE IN CORSO' +
+        (saved.meta.mode === 'fast' ? ' X4' : '') +
+        ' (ORE ' +
+        hhmm(saved.meta.gameT) +
+        ') - ' +
+        KM('ok') +
+        ': CONTINUA   ' +
+        KM('del') +
+        ': CANCELLA',
       VW / 2,
       y0 + 12,
       bl,
       1,
       'center',
     );
-  else txt('SCEGLI IL BIKER - ' + KM('ok') + ': INIZIA LA NOTTE (ORE 18:00)', VW / 2, y0 + 12, bl, 1, 'center');
+  else txt('SCEGLI IL BIKER - ' + KM('ok') + ': SCEGLI LA MODALITA E INIZIA', VW / 2, y0 + 12, bl, 1, 'center');
   if (titleMsg) txt(titleMsg, VW / 2, y0 + 24, '#ff9de6', 1, 'center');
   const L = [
     'GUIDA ' +
@@ -907,6 +917,28 @@ function drawTitle(dt) {
       (PAD.on ? 'GAMEPAD COLLEGATO' : 'GAMEPAD SUPPORTATO'),
   ];
   L.forEach((l, i) => txt(l, VW / 2, y0 + 38 + i * 11, i < 2 ? '#c9c2e6' : '#7a6f99', 1, 'center'));
+  if (modeMenu) drawModeMenu();
+}
+function drawModeMenu() {
+  ctx.fillStyle = 'rgba(5,3,12,.7)';
+  ctx.fillRect(0, 0, VW, VH);
+  const w = 400,
+    h = 44 + MODES.length * 30,
+    x = (VW - w) / 2,
+    y = (VH - h) / 2;
+  panel(x, y, w, h);
+  txt('SCEGLI LA MODALITA - ' + ROSTER[sel].name, VW / 2, y + 8, '#3cf2ff', 1, 'center');
+  MODES.forEach((m, i) => {
+    const yy = y + 26 + i * 30,
+      on = i === modeMenu.sel;
+    if (on) {
+      ctx.fillStyle = 'rgba(60,242,255,.14)';
+      ctx.fillRect(x + 6, yy - 3, w - 12, 26);
+    }
+    txt((on ? '> ' : '  ') + (i + 1) + '. ' + m.name, x + 14, yy, on ? '#ffe03c' : '#ffffff', 1);
+    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : '#7a6f99', 1);
+  });
+  txt(KM('ok') + ': INIZIA   ' + KM('back') + ': INDIETRO', VW / 2, y + h - 12, '#7a6f99', 1, 'center');
 }
 function drawEnd() {
   ctx.fillStyle = 'rgba(5,3,12,.78)';
