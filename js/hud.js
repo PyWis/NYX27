@@ -86,6 +86,7 @@ function statusTxt(b) {
     case 'car':
       return ["SULL'AUTO NERA", '#b48cff'];
     case 'garage':
+      if (b.i === NOVA && novaLocked()) return ['ARRIVA ALLE 02:00', '#7a6f99'];
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['NELLO STADIO', '#9fd4ff'];
@@ -131,6 +132,7 @@ function statusShort(b) {
     case 'car':
       return ['AUTO NERA', '#b48cff'];
     case 'garage':
+      if (b.i === NOVA && novaLocked()) return ['ORE 02:00', '#7a6f99'];
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['STADIO', '#9fd4ff'];
@@ -178,6 +180,7 @@ function drawTopBar() {
   txt(hhmm(E), 212, 8, E >= NIGHT ? '#ffb03c' : '#ffffff', 2);
   bar(212, 26, 58, 3, E / NIGHT, E >= NIGHT ? '#ffb03c' : '#7a6fff'); // avanzamento della notte verso le 06:00
   if (meta.mode === 'fast') txt('X4', 538, 8, '#9fd4ff', 1, 'right'); // modalita' veloce: orologio x4
+  if (xhp() > 1) txt('X2', 538, 30, '#ff4d6d', 1, 'right'); // rivincita: Xeno con vita x2
   if (weather.int > 0.3) {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
@@ -923,12 +926,13 @@ function drawModeMenu() {
   ctx.fillStyle = 'rgba(5,3,12,.7)';
   ctx.fillRect(0, 0, VW, VH);
   const w = 400,
-    h = 44 + MODES.length * 30,
+    L = modeMenu.list || MODES,
+    h = 44 + L.length * 30,
     x = (VW - w) / 2,
     y = (VH - h) / 2;
   panel(x, y, w, h);
   txt('SCEGLI LA MODALITA - ' + ROSTER[sel].name, VW / 2, y + 8, '#3cf2ff', 1, 'center');
-  MODES.forEach((m, i) => {
+  L.forEach((m, i) => {
     const yy = y + 26 + i * 30,
       on = i === modeMenu.sel;
     if (on) {
@@ -936,7 +940,7 @@ function drawModeMenu() {
       ctx.fillRect(x + 6, yy - 3, w - 12, 26);
     }
     txt((on ? '> ' : '  ') + (i + 1) + '. ' + m.name, x + 14, yy, on ? '#ffe03c' : '#ffffff', 1);
-    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : '#7a6f99', 1);
+    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : m.id === 'replay' ? '#ff4d6d' : '#7a6f99', 1);
   });
   txt(KM('ok') + ': INIZIA   ' + KM('back') + ': INDIETRO', VW / 2, y + h - 12, '#7a6f99', 1, 'center');
 }
@@ -958,6 +962,7 @@ function drawEnd() {
     'center',
   );
   txt('ORA: ' + hhmm(e.at) + '   CASSA: ' + money + '$', VW / 2, 197, '#3cf2ff', 2, 'center');
+  if (e.replay) txt('RIVINCITA X2 SBLOCCATA: XENO CON VITA X2 PER 7 GIORNI', VW / 2, 218, '#ff4d6d', 1, 'center');
   txt(KM('ok') + ' PER TORNARE AL TITOLO', VW / 2, 240, blink(2) ? '#ffe03c' : '#ffffff', 1, 'center');
 }
 function drawWait() {

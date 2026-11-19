@@ -3123,12 +3123,38 @@ function resetRun() {
 }
 // mode: 'classic' (orologio x1), 'fast' (orologio x4, rinforzi sempre ogni 60 s reali), 'tutorial'
 const CLOCK = { classic: 1, fast: 4, tutorial: 0 };
-function newGame(start, mode) {
+// modalita' veloce: tempi di attesa dimezzati, Nova solo dalle 02:00, termine per gli Xeno alle 07:00
+const fastOn = () => !!meta && meta.mode === 'fast';
+const waitDt = dt => (fastOn() ? dt * 2 : dt);
+const NOVA_FAST_T = 8 * 3600, // 02:00
+  FAST_FINAL = 13 * 3600; // 07:00
+const novaLocked = () => fastOn() && meta.gameT < NOVA_FAST_T;
+const finalT = () => (fastOn() ? FAST_FINAL : FINAL);
+// rivincita: una notte vinta si puo' rigiocare (stessa citta') con la vita degli Xeno x2 entro 7 giorni reali
+const REPLAY_KEY = 'nyx-replay',
+  REPLAY_MS = 7 * 24 * 3600 * 1000;
+const xhp = () => (meta && meta.xhp) || 1;
+function readReplay() {
+  try {
+    const r = JSON.parse(localStorage.getItem(REPLAY_KEY));
+    if (r && r.seed != null && Date.now() - r.at < REPLAY_MS) return r;
+  } catch (e) {}
+  return null;
+}
+function writeReplay(r) {
+  try {
+    localStorage.setItem(REPLAY_KEY, JSON.stringify(r));
+  } catch (e) {}
+}
+// opts: { seed, xhp } per la rivincita
+function newGame(start, mode, opts) {
+  opts = opts || {};
   mode = CLOCK[mode] === undefined ? 'classic' : mode;
-  const seed = Math.floor(Math.random() * 1e9);
+  const seed = opts.seed != null ? opts.seed : Math.floor(Math.random() * 1e9);
   genCity(seed);
   resetRun();
-  meta = { seed, gameT: 0, realT: 0, ended: null, mode, clk: CLOCK[mode] };
+  meta = { seed, gameT: 0, realT: 0, ended: null, mode, clk: CLOCK[mode], xhp: opts.xhp || 1 };
+  if (start === NOVA && novaLocked()) start = 0; // in veloce Nova arriva solo alle 02:00
   team = makeTeam();
   active = start;
   team[active].status = 'active';
@@ -3143,6 +3169,8 @@ function newGame(start, mode) {
   else
     msg('ORE 18:00 - LA NOTTE DI NEW YORK XENO E INIZIATA' + (meta.mode === 'fast' ? ' (OROLOGIO X4)' : ''), '#3cf2ff');
   if (!meta.tut) msg("RESISTI FINO ALL'ALBA", ACID);
+  if (meta.mode === 'fast') msg('NOVA ARRIVA ALLE 02:00 - TERMINE PER GLI XENO ALLE 07:00', '#9fd4ff');
+  if (meta.xhp > 1) msg('RIVINCITA: GLI XENO HANNO VITA X' + meta.xhp, '#ff4d6d');
   sfx('switch');
   saveGame();
 }
@@ -3157,7 +3185,7 @@ function spawnEnemy() {
     }
   }
   if (!n) n = nodes[Math.floor(R() * nodes.length)];
-  const e = addEnemy(Math.floor(R() * NB), n.x, n.y, 25, nextEid++);
+  const e = addEnemy(Math.floor(R() * NB), n.x, n.y, 25 * xhp(), nextEid++);
   if (nyxOn()) e.follow = true;
   return e;
 }
@@ -3263,6 +3291,7 @@ function serialize() {
       px: b.px,
       py: b.py,
       ambDest: b.ambDest,
+      homeAfter: !!b.homeAfter,
       rob: b.rob || null,
       onFoot: b.onFoot || !!b.inCar,
       fx: body(b).x,
@@ -3466,6 +3495,11 @@ function endGame(win, reason) {
   if (state === 'end') return;
   state = 'end';
   meta.ended = { win, reason, kills, at: meta.gameT };
+  // vittoria (non gia' una rivincita): si puo' rigiocare la stessa notte con gli Xeno x2 per 7 giorni
+  if (win && !meta.tut && xhp() === 1) {
+    meta.ended.replay = true;
+    writeReplay({ seed: meta.seed, mode: meta.mode, at: Date.now() });
+  }
   saveGame();
   msgs = [];
   sfx(win ? 'cash' : 'boom');
@@ -3476,7 +3510,7 @@ function checkEnd() {
   if (team.every(b => b.status === 'dead')) return endGame(false, 'TUTTI I BIKER NYX SONO MORTI');
   if (E >= NIGHT && enemies.length === 0) return endGame(true, "ALL'ALBA NESSUNO XENO E RIMASTO IN CITTA");
   if (nyxOn()) return; // con Nyx attiva non si va in game over
-  if (E >= FINAL) return endGame(false, 'ALLE 6:15 GLI XENO SONO ANCORA IN CITTA');
+  if (E >= finalT()) return endGame(false, 'ALLE ' + hhmm(finalT()) + ' GLI XENO SONO ANCORA IN CITTA');
   if (lowT >= 1800) return endGame(true, "XENO SOTTO QUOTA 3 PER MEZZ'ORA");
   if (xenoFullT !== null && xenoFullT <= 0) return endGame(false, 'GLI XENO HANNO RAGGIUNTO QUOTA 20');
 }
@@ -3492,7 +3526,7 @@ function charge(b, dt, still) {
     return;
   }
   const per = inGarage(b.x, b.y) ? (superBat ? 10 : 15) : 30; // in rimessa x2 (x3 dopo il colpo delle batterie)
-  b.chg += dt;
+  b.chg += waitDt(dt);
   if (b.chg >= per) {
     b.chg -= per;
     b.bat = Math.min(BAT_MAX, b.bat + 10);
@@ -3506,12 +3540,12 @@ function heal(b, dt) {
   if (b.status === 'dead' || b.status === 'captured' || b.status === 'out' || b.status === 'hosp' || b.hp <= 0) return;
   if (b.status === 'car' || crewed(b)) return; // sull'auto nera la vita e' comune
   if (b.medOn) {
-    b.hp = Math.min(maxHP, b.hp + (25 / 60) * dt);
+    b.hp = Math.min(maxHP, b.hp + (25 / 60) * waitDt(dt));
     if (b.hp >= maxHP) {
       b.medOn = false;
       if (b === team[active]) msg('CURA COMPLETATA', '#5cff7a');
     }
-  } else if (atGarage(b)) b.hp = Math.min(maxHP, b.hp + (2 / 60) * dt);
+  } else if (atGarage(b)) b.hp = Math.min(maxHP, b.hp + (2 / 60) * waitDt(dt));
 }
 function garageAutoMed() {
   if (garageMeds <= 0) return;
@@ -3564,6 +3598,7 @@ function nextAvail(from) {
   for (let k = 1; k <= NB; k++) {
     const j = (from + k) % NB;
     if (lock && !stad.three.includes(j)) continue;
+    if (j === NOVA && novaLocked()) continue; // veloce: Nova solo dalle 02:00
     if (AVAIL(team[j].status) || team[j].status === 'car') return j;
   }
   return -1;
@@ -3621,7 +3656,18 @@ function switchBiker(home) {
       emptyDark(false);
       old.onFoot = false;
       startFetch(old, old.fx, old.fy, true);
+      old.homeAfter = !inMission(old);
     } else crewStay(old);
+  } else if (old.onFoot || old.inCar) {
+    // a piedi (o su un'auto rubata): il biker torna a piedi alla sua moto per recuperarla
+    if (old.inCar) exitCar(old, false);
+    const f = { x: old.fx, y: old.fy };
+    old.onFoot = false;
+    old.v = 0;
+    old.nitroT = 0;
+    old.walkPath = null;
+    startFetch(old, f.x, f.y);
+    old.homeAfter = !!home && !inMission(old); // SHIFT: recuperata la moto rientra in rimessa
   } else park(old);
   if (home && !inMission(old)) sendHome(old);
   else if (zephyrWaits(old)) msg('ZEPHYR ASPETTA VESPER IN CHIESA PER IL MATRIMONIO', '#ff6ec7');
@@ -4789,7 +4835,7 @@ function updateMate(b, dt) {
     case 'idle':
       charge(b, dt, true);
       // BLOCK di Caspian e missione stadio: nessuno rientra da solo
-      if (!zephyrWaits(b) && !holdIdle(b)) b.waitT -= dt;
+      if (!zephyrWaits(b) && !holdIdle(b)) b.waitT -= waitDt(dt);
       if (b.waitT <= 0 && !holdIdle(b)) {
         b.chkT -= dt;
         if (b.chkT <= 0) {
@@ -4837,7 +4883,7 @@ function updateMate(b, dt) {
       break;
     }
     case 'hosp':
-      b.hp = Math.min(maxHP, b.hp + (10 / 60) * dt);
+      b.hp = Math.min(maxHP, b.hp + (10 / 60) * waitDt(dt));
       charge(b, dt, true);
       if (b.hp >= maxHP) {
         const h = shops.find(x => x.type === 'hosp');
@@ -4882,7 +4928,9 @@ function updateMate(b, dt) {
             b.status = 'idle';
             b.waitT = 0;
             b.chkT = 0;
+            if (b.homeAfter) sendHome(b);
           }
+          b.homeAfter = false;
         }
       } else {
         b.px += (dx / d) * sp;
@@ -4897,7 +4945,7 @@ function updateMate(b, dt) {
       charge(b, dt, true);
       break;
     case 'out':
-      b.outT -= dt;
+      b.outT -= waitDt(dt);
       if (b.outT <= 0) release(b);
       break;
     case 'captured':
@@ -5061,9 +5109,9 @@ function update(dt) {
   compact(msgs, m => m.life > 0);
   updateWorldFx(dt);
   for (const s of shops) {
-    s.cd -= dt;
+    s.cd -= waitDt(dt);
     if (s.anger > 0) {
-      s.calm += dt;
+      s.calm += waitDt(dt);
       if (s.calm >= 900) {
         s.anger--;
         s.calm = 0;
@@ -5087,7 +5135,7 @@ function update(dt) {
     if (mission) msg('MISSIONE SCADUTA: PACCO PERSO', '#ff4d6d');
     newMission();
   }
-  churchCD = Math.max(0, churchCD - dt);
+  churchCD = Math.max(0, churchCD - waitDt(dt));
   if (noSpawnT > 0) {
     noSpawnT -= dt;
     if (noSpawnT <= 0) msg('LA PROTEZIONE DELLA CHIESA E FINITA', '#e6e0ff');
@@ -5191,6 +5239,10 @@ function update(dt) {
   if (ap && ap.i === 2 && !meta.fast && !meta.tut && (meta.realT ?? meta.gameT) < 300 && state === 'play') {
     const n = shops.find(s => s.type === 'nasa');
     if (n && dist(pBody.x, pBody.y, n.x, n.y) < 32) pendingFast = true;
+  }
+  if (fastOn() && !meta.novaOk && meta.gameT >= NOVA_FAST_T) {
+    meta.novaOk = true;
+    if (team[NOVA].status !== 'dead') msg('SONO LE 02:00: NOVA E DISPONIBILE', '#ff3df2');
   }
   if (meta.tut) updateTutorial(ap, dt);
   if (ap && ap.hp <= 0) defeat();
@@ -5761,7 +5813,7 @@ const shopOff = s => s && s.offT > 0;
 function makeSpecial(e, kind) {
   const k = XK[kind];
   e.kind = kind;
-  e.hp = k.hp;
+  e.hp = k.hp * xhp(); // rivincita: vita x2
   e.mul = k.mul;
   e.follow = false;
   e.spT = 0;
@@ -5874,7 +5926,7 @@ function redNav(e, g, dt) {
 function becomeGold(e) {
   e.kind = 'gold';
   e.mul = XK.gold.mul;
-  e.hp = Math.max(e.hp, XK.gold.hp);
+  e.hp = Math.max(e.hp, XK.gold.hp * xhp());
   e.tgt = -1;
   e.siegeT = 0;
   e.taken = [];
@@ -6316,14 +6368,14 @@ function updateSpecial(dt) {
       heist = null;
     }
   }
-  truceCD = Math.max(0, truceCD - dt);
+  truceCD = Math.max(0, truceCD - waitDt(dt));
   if (truceT > 0) {
     truceT -= dt;
     if (truceT <= 0) endTruce();
   }
   for (const s of shops)
     if (s.offT > 0) {
-      s.offT -= dt;
+      s.offT -= waitDt(dt);
       if (s.offT <= 0) {
         s.offT = 0;
         msg(s.name + ' TORNA OPERATIVO', SHOP_T[s.type].c);
@@ -7179,7 +7231,7 @@ function updateDark(dt) {
   darkWarnT -= dt;
   if (!dark) return;
   if (dark.phase === 'build') {
-    dark.t -= dt;
+    dark.t -= waitDt(dt);
     if (dark.t <= 0) darkDone();
     return;
   }
@@ -7189,7 +7241,7 @@ function updateDark(dt) {
   if (Math.abs(dark.v) < 4 && dark.bat < DARK_BAT) {
     const full = inSquare(dark.x, dark.y) ? DARK_FAST : DARK_SLOW;
     const was = dark.bat;
-    dark.bat = Math.min(DARK_BAT, dark.bat + (DARK_BAT / full) * dt);
+    dark.bat = Math.min(DARK_BAT, dark.bat + (DARK_BAT / full) * waitDt(dt));
     if (was < DARK_BAT && dark.bat >= DARK_BAT && !driving) msg('AUTO NERA RICARICATA', '#b48cff');
   }
 }
@@ -8252,11 +8304,12 @@ function drawWorld(cx, cy, dt) {
   for (const e of enemies) {
     const b = body(e);
     if (!vis(b.x, b.y)) continue;
-    if (e.hp < 25) {
+    const mh = 25 * xhp(); // rivincita: vita x2
+    if (e.hp < mh) {
       ctx.fillStyle = '#000';
       ctx.fillRect(b.x - 8, b.y - 12, 16, 3);
       ctx.fillStyle = ACID;
-      ctx.fillRect(b.x - 7, b.y - 11, Math.max(0, (14 * e.hp) / 25), 1);
+      ctx.fillRect(b.x - 7, b.y - 11, Math.max(0, (14 * e.hp) / mh), 1);
     }
   }
   for (const c of police)
@@ -8391,6 +8444,7 @@ function statusTxt(b) {
     case 'car':
       return ["SULL'AUTO NERA", '#b48cff'];
     case 'garage':
+      if (b.i === NOVA && novaLocked()) return ['ARRIVA ALLE 02:00', '#7a6f99'];
       return ['IN RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['NELLO STADIO', '#9fd4ff'];
@@ -8436,6 +8490,7 @@ function statusShort(b) {
     case 'car':
       return ['AUTO NERA', '#b48cff'];
     case 'garage':
+      if (b.i === NOVA && novaLocked()) return ['ORE 02:00', '#7a6f99'];
       return ['RIMESSA', '#3cf2ff'];
     case 'idle':
       if (inMission(b)) return ['STADIO', '#9fd4ff'];
@@ -8483,6 +8538,7 @@ function drawTopBar() {
   txt(hhmm(E), 212, 8, E >= NIGHT ? '#ffb03c' : '#ffffff', 2);
   bar(212, 26, 58, 3, E / NIGHT, E >= NIGHT ? '#ffb03c' : '#7a6fff'); // avanzamento della notte verso le 06:00
   if (meta.mode === 'fast') txt('X4', 538, 8, '#9fd4ff', 1, 'right'); // modalita' veloce: orologio x4
+  if (xhp() > 1) txt('X2', 538, 30, '#ff4d6d', 1, 'right'); // rivincita: Xeno con vita x2
   if (weather.int > 0.3) {
     icon('rain', 212, 31, '#9fb4ff');
     txt('PIOGGIA', 221, 32, '#9fb4ff');
@@ -9228,12 +9284,13 @@ function drawModeMenu() {
   ctx.fillStyle = 'rgba(5,3,12,.7)';
   ctx.fillRect(0, 0, VW, VH);
   const w = 400,
-    h = 44 + MODES.length * 30,
+    L = modeMenu.list || MODES,
+    h = 44 + L.length * 30,
     x = (VW - w) / 2,
     y = (VH - h) / 2;
   panel(x, y, w, h);
   txt('SCEGLI LA MODALITA - ' + ROSTER[sel].name, VW / 2, y + 8, '#3cf2ff', 1, 'center');
-  MODES.forEach((m, i) => {
+  L.forEach((m, i) => {
     const yy = y + 26 + i * 30,
       on = i === modeMenu.sel;
     if (on) {
@@ -9241,7 +9298,7 @@ function drawModeMenu() {
       ctx.fillRect(x + 6, yy - 3, w - 12, 26);
     }
     txt((on ? '> ' : '  ') + (i + 1) + '. ' + m.name, x + 14, yy, on ? '#ffe03c' : '#ffffff', 1);
-    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : '#7a6f99', 1);
+    txt(m.d, x + 30, yy + 11, on ? '#c9c2e6' : m.id === 'replay' ? '#ff4d6d' : '#7a6f99', 1);
   });
   txt(KM('ok') + ': INIZIA   ' + KM('back') + ': INDIETRO', VW / 2, y + h - 12, '#7a6f99', 1, 'center');
 }
@@ -9263,6 +9320,7 @@ function drawEnd() {
     'center',
   );
   txt('ORA: ' + hhmm(e.at) + '   CASSA: ' + money + '$', VW / 2, 197, '#3cf2ff', 2, 'center');
+  if (e.replay) txt('RIVINCITA X2 SBLOCCATA: XENO CON VITA X2 PER 7 GIORNI', VW / 2, 218, '#ff4d6d', 1, 'center');
   txt(KM('ok') + ' PER TORNARE AL TITOLO', VW / 2, 240, blink(2) ? '#ffe03c' : '#ffffff', 1, 'center');
 }
 function drawWait() {
@@ -9595,18 +9653,34 @@ let last = performance.now(),
 // scelta della modalita' dopo il biker: classica, veloce (orologio x4), tutorial
 const MODES = [
   { id: 'classic', name: 'CLASSICA', d: '1 MINUTO DI GIOCO = 1 MINUTO DI NOTTE (12 ORE)' },
-  { id: 'fast', name: 'VELOCE X4', d: "L'OROLOGIO CORRE X4 (3 ORE) - RINFORZI SEMPRE OGNI MINUTO" },
+  { id: 'fast', name: 'VELOCE X4', d: 'OROLOGIO X4 - ATTESE A META - NOVA 02:00 - XENO ENTRO 07:00' },
   { id: 'tutorial', name: 'TUTORIAL', d: 'IMPARA I COMANDI PASSO PASSO - NESSUN SALVATAGGIO' },
 ];
-let modeMenu = null; // {sel}
+// rivincita: compare solo entro 7 giorni reali da una notte vinta
+function modeList() {
+  const r = readReplay();
+  if (!r) return MODES;
+  const h = Math.max(1, Math.ceil((r.at + REPLAY_MS - Date.now()) / 3600000));
+  const left = h > 24 ? Math.ceil(h / 24) + ' GIORNI' : h + ' ORE';
+  return MODES.concat({
+    id: 'replay',
+    name: 'RIVINCITA X2',
+    d: 'NOTTE VINTA (' + (r.mode === 'fast' ? 'VELOCE' : 'CLASSICA') + ') - XENO VITA X2 - SCADE TRA ' + left,
+    r,
+  });
+}
+let modeMenu = null; // {sel, list}
 function modeInput() {
-  const m = modeMenu;
-  if (mhit('up') || mhit('left')) m.sel = (m.sel + MODES.length - 1) % MODES.length;
-  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % MODES.length;
-  for (let k = 0; k < MODES.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
+  const m = modeMenu,
+    L = m.list;
+  if (mhit('up') || mhit('left')) m.sel = (m.sel + L.length - 1) % L.length;
+  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % L.length;
+  for (let k = 0; k < L.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
   if (mhit('ok')) {
+    const o = L[m.sel];
     modeMenu = null;
-    newGame(sel, MODES[m.sel].id);
+    if (o.id === 'replay') newGame(sel, o.r.mode, { seed: o.r.seed, xhp: 2 });
+    else newGame(sel, o.id);
     resetWeather();
   } else if (mhit('back')) modeMenu = null;
 }
@@ -9636,7 +9710,7 @@ function titleInput() {
   }
   if (mhit('ok')) {
     if (live) loadGame(saved);
-    else modeMenu = { sel: 0 };
+    else modeMenu = { sel: 0, list: modeList() };
   }
 }
 function gunInput() {
@@ -9719,7 +9793,8 @@ function frame(t) {
     } // troppo lento: si rallenta invece di "saltare"
     if (pendingFast) {
       pendingFast = false;
-      newGame(2, meta.mode || 'classic');
+      // la rivincita resta tale: stessa citta' e Xeno x2
+      newGame(2, meta.mode || 'classic', xhp() > 1 ? { seed: meta.seed, xhp: meta.xhp } : null);
       meta.gameT = 11 * 3600;
       meta.fast = true;
       msgs = [];

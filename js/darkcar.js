@@ -337,7 +337,7 @@ function updateDark(dt) {
   darkWarnT -= dt;
   if (!dark) return;
   if (dark.phase === 'build') {
-    dark.t -= dt;
+    dark.t -= waitDt(dt);
     if (dark.t <= 0) darkDone();
     return;
   }
@@ -347,7 +347,7 @@ function updateDark(dt) {
   if (Math.abs(dark.v) < 4 && dark.bat < DARK_BAT) {
     const full = inSquare(dark.x, dark.y) ? DARK_FAST : DARK_SLOW;
     const was = dark.bat;
-    dark.bat = Math.min(DARK_BAT, dark.bat + (DARK_BAT / full) * dt);
+    dark.bat = Math.min(DARK_BAT, dark.bat + (DARK_BAT / full) * waitDt(dt));
     if (was < DARK_BAT && dark.bat >= DARK_BAT && !driving) msg('AUTO NERA RICARICATA', '#b48cff');
   }
 }
