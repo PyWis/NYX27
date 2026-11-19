@@ -14,11 +14,31 @@ Dopo la scelta del biker si sceglie la modalità:
 | **Classica** | 1 minuto di gioco = 1 minuto di notte | 12 ore | 1 ogni minuto di gioco |
 | **Veloce x4** | 1 minuto di gioco = 4 minuti di notte | 3 ore | 1 ogni minuto di gioco (non accelera) |
 | **Tutorial** | fermo alle 18:00 | — | nessuno |
+| **Rivincita x2** | come la notte vinta | come la notte vinta | come la notte vinta, ma Xeno con **vita x2** |
 
 In modalità veloce accelera solo l'orologio: tutto ciò che dipende dall'ora (stadio alle 20:00, 00:00 e 05:00,
 Xeno Rosso dopo 30 minuti di notte, Silver dopo 90, cielo, pioggia, alba) arriva prima. Gli altri tempi
-(batterie, catture, tregua, BLOCK, missioni, "Xeno sotto quota 3 per 30 minuti") restano in minuti di gioco.
+(catture, tregua, BLOCK, missioni, "Xeno sotto quota 3 per 30 minuti") restano in minuti di gioco.
 La modalità resta nel salvataggio; nell'HUD accanto all'ora compare **X4**.
+
+Regole in più della modalità veloce:
+- **Tempi di attesa dimezzati:** ricarica delle batterie (moto e auto nera), cure (farmaco, rimessa, ospedale),
+  fuori gioco (ferito, arrestato, fuggito, Nyx esausta, ostaggio), sosta dei biker in strada prima di rientrare,
+  pausa dei negozi tra una rapina e l'altra e calo della rabbia, negozi fuori uso, preghiera in chiesa,
+  attesa della tregua di Nova, costruzione dell'auto nera. Scadenze e durate (catture, missioni, scudi,
+  protezione della chiesa, rinforzi) restano come sono.
+- **Nova torna dopo 2 ore:** Nova si sceglie normalmente. Se non è disponibile (rapita, fuori gioco, arrestata,
+  ostaggio nello stadio, in cura, in ospedale, sull'auto medica, a piedi verso la moto) dopo **2 ore di orologio**
+  torna in rimessa con almeno 30 di vita. Da rapita non muore: allo scadere delle 2 ore viene liberata.
+  Al **centro NASA** chiunque può liberarla subito per **2500$** ("LIBERA NOVA"). La tregua al centro alieni
+  non conta, perché è una sua scelta; se muore resta morta.
+- **Termine alle 07:00:** dall'alba (06:00) niente più rinforzi, ma si perde solo se alle **07:00**
+  ci sono ancora Xeno in città (in classica resta alle 06:15).
+
+**Rivincita x2:** vincere una partita (non già una rivincita) sblocca per **7 giorni reali** la voce
+**RIVINCITA X2** nel menu delle modalità: si rigioca la stessa città, nella stessa modalità, con la vita di
+tutti gli Xeno (normali, speciali, stadio) raddoppiata. Nell'HUD compare **X2**. Vincere la rivincita non
+rinnova i 7 giorni; una nuova vittoria normale sì.
 
 **Tutorial:** 10 passi guidati (guida, mappa G, radar V, abbattere uno Xeno, scendere e risalire con Z,
 comprare un farmaco con i 100$ regalati, usarlo con F, tornare in rimessa, cambiare biker con Tab).
@@ -104,6 +124,9 @@ poi colpisce a morte tutto quello che ha intorno (Xeno e agenti).
   (altrimenti aspetta di ricaricarsi).
 - **Shift + Tab:** cambi biker e quello lasciato parte subito verso la rimessa. Il viaggio consuma batteria:
   se finisce, si ferma a ricaricare e poi riparte.
+- **Tab a piedi:** se il biker lasciato è a piedi (o su un'auto della polizia rubata) non torna di colpo in sella:
+  raggiunge **a piedi** la sua moto per recuperarla (nel roster "VA MOTO"). Con Shift + Tab, recuperata la moto,
+  parte verso la rimessa.
 - **Richiamo (R):** Zephyr o Vesper, dalla rimessa, richiamano tutti i biker fermi in strada.
 - **BLOCK (R):** Caspian, dalla rimessa, dà il comando BLOCK: per **30 minuti** nessun biker rientra in rimessa
   per decisione propria (restano fermi dove li hai lasciati). Vanno comunque a recuperare la loro moto

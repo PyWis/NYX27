@@ -108,6 +108,143 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   r = await ev(() => ({ s: state, e: meta.ended }));
   ok(r.s === 'end' && r.e && r.e.win, "veloce: l'alba arriva e si vince senza Xeno", r);
 
+  console.log('veloce: attese, Nova, termine 07:00');
+  r = await ev(() => {
+    newGame(5, 'fast');
+    resetWeather();
+    return { a: active, s: team[5].status };
+  });
+  ok(r.a === 5 && r.s === 'active', 'veloce: Nova si puo scegliere', r);
+  const novaOutTest = st =>
+    ev(st => {
+      newGame(0, 'fast');
+      resetWeather();
+      respawnT = 1e9;
+      const n = team[NOVA];
+      n.status = st;
+      n.hp = 10;
+      if (st === 'out') {
+        n.outR = 'ARRESTATO';
+        n.outT = 1e6;
+      }
+      if (st === 'captured') {
+        n.captor = enemies[0].id;
+        n.capT = 1800;
+      }
+      if (st === 'hosp') n.hp = -1e6; // non guarisce mai da sola
+      const t0 = meta.gameT;
+      for (let i = 0; i < 1790 * 120 && state === 'play'; i++) update(STEP);
+      const before = n.status;
+      for (let i = 0; i < 20 * 120 && state === 'play'; i++) update(STEP);
+      return { before, after: n.status, hp: n.hp, h: (meta.gameT - t0) / 3600, avail: nextAvail(4) === NOVA };
+    }, st);
+  for (const st of ['out', 'captured', 'hosp']) {
+    r = await novaOutTest(st);
+    ok(r.before === st && r.after === 'garage' && r.hp >= 30, 'veloce: Nova ' + st + ' torna disponibile dopo 2 ore di orologio', r);
+  }
+  r = await ev(() => {
+    newGame(0, 'fast');
+    resetWeather();
+    const n = team[NOVA];
+    n.status = 'out';
+    n.outR = 'ARRESTATO';
+    n.outT = 1e6;
+    const s = shops.find(s => s.type === 'nasa');
+    const p = team[active];
+    const hint = SHOP_ACT.nasa.hint(p);
+    money = 1000;
+    SHOP_ACT.nasa.use(p);
+    const poor = n.status;
+    money = 3000;
+    SHOP_ACT.nasa.use(p);
+    return { hint, poor, st: n.status, money };
+  });
+  ok(/LIBERA NOVA 2500/.test(r.hint), 'veloce: la NASA offre di liberare Nova', r);
+  ok(r.poor === 'out' && r.st === 'garage' && r.money === 500, 'veloce: la NASA libera Nova per 2500$', r);
+  const outTest = mode =>
+    ev(m => {
+      newGame(0, m);
+      resetWeather();
+      const b = team[1];
+      b.status = 'out';
+      b.outR = 'FERITO';
+      b.outT = 60;
+      for (let i = 0; i < 31 * 120; i++) update(STEP);
+      return b.status;
+    }, mode);
+  ok((await outTest('fast')) === 'garage', 'veloce: 60 s fuori gioco finiscono in 30 s (attese dimezzate)');
+  ok((await outTest('classic')) === 'out', 'classica: le attese restano intere');
+  r = await ev(() => {
+    newGame(0, 'fast');
+    resetWeather();
+    respawnT = 1e9;
+    lowT = 0;
+    meta.gameT = 12 * 3600 + 20 * 60; // 06:20, Xeno ancora in citta'
+    update(STEP);
+    const at620 = state;
+    meta.gameT = 13 * 3600 - 1;
+    for (let i = 0; i < 120; i++) update(STEP);
+    return { at620, s: state, e: meta.ended };
+  });
+  ok(r.at620 === 'play', 'veloce: alle 06:20 la partita continua', r);
+  ok(r.s === 'end' && !r.e.win && /07:00/.test(r.e.reason), 'veloce: termine per gli Xeno alle 07:00', r);
+
+  console.log('TAB a piedi: il biker torna alla moto');
+  r = await ev(() => {
+    newGame(0, 'classic');
+    resetWeather();
+    const p = team[active];
+    dismount(p);
+    const n = nodes.find(n => {
+      const d = dist(n.x, n.y, p.x, p.y);
+      return d > 60 && d < 200 && los(n.x, n.y, p.x, p.y);
+    });
+    p.fx = n.x;
+    p.fy = n.y;
+    const bx = p.x,
+      by = p.y;
+    switchBiker(false);
+    const st = p.status,
+      still = p.x === bx && p.y === by,
+      dx = Math.hypot(p.px - n.x, p.py - n.y);
+    for (let i = 0; i < 2 * 120; i++) update(STEP);
+    const mid = p.status,
+      moved = Math.hypot(p.px - n.x, p.py - n.y);
+    for (let i = 0; i < 10 * 120; i++) update(STEP);
+    return { st, still, dx, mid, moved, end: p.status, onFoot: p.onFoot };
+  });
+  ok(r.st === 'fetch' && r.still && r.dx < 1, 'TAB a piedi: il biker resta dove era e va verso la moto', r);
+  ok(r.mid === 'fetch' && r.moved > 20, 'TAB a piedi: cammina verso la moto', r);
+  ok(['garage', 'idle'].includes(r.end) && !r.onFoot, 'TAB a piedi: arrivato, ha recuperato la moto', r);
+
+  console.log('rivincita x2');
+  r = await ev(() => readReplay());
+  ok(r && r.mode === 'fast' && r.seed != null, 'dopo una vittoria la rivincita e disponibile', r);
+  ok((await ev(() => modeList().length)) === 4, 'il menu modalita mostra RIVINCITA X2');
+  r = await ev(() => {
+    const rp = readReplay();
+    newGame(0, rp.mode, { seed: rp.seed, xhp: 2 });
+    resetWeather();
+    return { seedOk: meta.seed === rp.seed, hp: enemies.map(e => e.hp), x: meta.xhp };
+  });
+  ok(r.seedOk && r.x === 2 && r.hp.every(h => h === 50), 'rivincita: stessa citta e Xeno con vita x2', r);
+  r = await ev(() => {
+    meta.gameT = 12 * 3600 - 2;
+    enemies.length = 0;
+    respawnT = 999;
+    const at0 = readReplay().at;
+    for (let i = 0; i < 4 * 120; i++) update(STEP);
+    return { s: state, same: readReplay().at === at0 };
+  });
+  ok(r.s === 'end' && r.same, 'vincere la rivincita non rinnova i 7 giorni', r);
+  r = await ev(() => {
+    const rp = readReplay();
+    rp.at = Date.now() - 8 * 24 * 3600 * 1000;
+    writeReplay(rp);
+    return { r: readReplay(), n: modeList().length };
+  });
+  ok(r.r === null && r.n === 3, 'dopo 7 giorni la rivincita scade', r);
+
   console.log('tutorial');
   await ev(() => {
     delSave();

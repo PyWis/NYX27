@@ -81,7 +81,7 @@ const shopOff = s => s && s.offT > 0;
 function makeSpecial(e, kind) {
   const k = XK[kind];
   e.kind = kind;
-  e.hp = k.hp;
+  e.hp = k.hp * xhp(); // rivincita: vita x2
   e.mul = k.mul;
   e.follow = false;
   e.spT = 0;
@@ -194,7 +194,7 @@ function redNav(e, g, dt) {
 function becomeGold(e) {
   e.kind = 'gold';
   e.mul = XK.gold.mul;
-  e.hp = Math.max(e.hp, XK.gold.hp);
+  e.hp = Math.max(e.hp, XK.gold.hp * xhp());
   e.tgt = -1;
   e.siegeT = 0;
   e.taken = [];
@@ -636,14 +636,14 @@ function updateSpecial(dt) {
       heist = null;
     }
   }
-  truceCD = Math.max(0, truceCD - dt);
+  truceCD = Math.max(0, truceCD - waitDt(dt));
   if (truceT > 0) {
     truceT -= dt;
     if (truceT <= 0) endTruce();
   }
   for (const s of shops)
     if (s.offT > 0) {
-      s.offT -= dt;
+      s.offT -= waitDt(dt);
       if (s.offT <= 0) {
         s.offT = 0;
         msg(s.name + ' TORNA OPERATIVO', SHOP_T[s.type].c);

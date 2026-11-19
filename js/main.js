@@ -12,18 +12,34 @@ let last = performance.now(),
 // scelta della modalita' dopo il biker: classica, veloce (orologio x4), tutorial
 const MODES = [
   { id: 'classic', name: 'CLASSICA', d: '1 MINUTO DI GIOCO = 1 MINUTO DI NOTTE (12 ORE)' },
-  { id: 'fast', name: 'VELOCE X4', d: "L'OROLOGIO CORRE X4 (3 ORE) - RINFORZI SEMPRE OGNI MINUTO" },
+  { id: 'fast', name: 'VELOCE X4', d: 'OROLOGIO X4 - ATTESE /2 - NOVA TORNA IN 2 ORE - FINE 07:00' },
   { id: 'tutorial', name: 'TUTORIAL', d: 'IMPARA I COMANDI PASSO PASSO - NESSUN SALVATAGGIO' },
 ];
-let modeMenu = null; // {sel}
+// rivincita: compare solo entro 7 giorni reali da una notte vinta
+function modeList() {
+  const r = readReplay();
+  if (!r) return MODES;
+  const h = Math.max(1, Math.ceil((r.at + REPLAY_MS - Date.now()) / 3600000));
+  const left = h > 24 ? Math.ceil(h / 24) + ' GIORNI' : h + ' ORE';
+  return MODES.concat({
+    id: 'replay',
+    name: 'RIVINCITA X2',
+    d: 'NOTTE VINTA (' + (r.mode === 'fast' ? 'VELOCE' : 'CLASSICA') + ') - XENO VITA X2 - SCADE TRA ' + left,
+    r,
+  });
+}
+let modeMenu = null; // {sel, list}
 function modeInput() {
-  const m = modeMenu;
-  if (mhit('up') || mhit('left')) m.sel = (m.sel + MODES.length - 1) % MODES.length;
-  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % MODES.length;
-  for (let k = 0; k < MODES.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
+  const m = modeMenu,
+    L = m.list;
+  if (mhit('up') || mhit('left')) m.sel = (m.sel + L.length - 1) % L.length;
+  if (mhit('down') || mhit('right')) m.sel = (m.sel + 1) % L.length;
+  for (let k = 0; k < L.length; k++) if (pressed.has('Digit' + (k + 1))) m.sel = k;
   if (mhit('ok')) {
+    const o = L[m.sel];
     modeMenu = null;
-    newGame(sel, MODES[m.sel].id);
+    if (o.id === 'replay') newGame(sel, o.r.mode, { seed: o.r.seed, xhp: 2 });
+    else newGame(sel, o.id);
     resetWeather();
   } else if (mhit('back')) modeMenu = null;
 }
@@ -53,7 +69,7 @@ function titleInput() {
   }
   if (mhit('ok')) {
     if (live) loadGame(saved);
-    else modeMenu = { sel: 0 };
+    else modeMenu = { sel: 0, list: modeList() };
   }
 }
 function gunInput() {
@@ -136,7 +152,8 @@ function frame(t) {
     } // troppo lento: si rallenta invece di "saltare"
     if (pendingFast) {
       pendingFast = false;
-      newGame(2, meta.mode || 'classic');
+      // la rivincita resta tale: stessa citta' e Xeno x2
+      newGame(2, meta.mode || 'classic', xhp() > 1 ? { seed: meta.seed, xhp: meta.xhp } : null);
       meta.gameT = 11 * 3600;
       meta.fast = true;
       msgs = [];

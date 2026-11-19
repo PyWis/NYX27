@@ -867,11 +867,12 @@ function drawWorld(cx, cy, dt) {
   for (const e of enemies) {
     const b = body(e);
     if (!vis(b.x, b.y)) continue;
-    if (e.hp < 25) {
+    const mh = 25 * xhp(); // rivincita: vita x2
+    if (e.hp < mh) {
       ctx.fillStyle = '#000';
       ctx.fillRect(b.x - 8, b.y - 12, 16, 3);
       ctx.fillStyle = ACID;
-      ctx.fillRect(b.x - 7, b.y - 11, Math.max(0, (14 * e.hp) / 25), 1);
+      ctx.fillRect(b.x - 7, b.y - 11, Math.max(0, (14 * e.hp) / mh), 1);
     }
   }
   for (const c of police)
